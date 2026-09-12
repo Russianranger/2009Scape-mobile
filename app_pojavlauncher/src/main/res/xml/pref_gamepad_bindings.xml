@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <net.kdt.pojavlaunch.prefs.BackButtonPreference />
+
+    <Preference
+        android:title="@string/gamepad_bindings_title"
+        android:summary="@string/gamepad_bindings_help"
+        android:selectable="false" />
+
+    <Preference
+        android:key="gamepad_bindings_reset"
+        android:title="@string/gamepad_bindings_reset_title"
+        android:summary="@string/gamepad_bindings_reset_summary" />
+
+    <PreferenceCategory
+        android:key="gamepad_bindings"
+        android:title="@string/gamepad_bindings_inputs_title" />
+</PreferenceScreen>

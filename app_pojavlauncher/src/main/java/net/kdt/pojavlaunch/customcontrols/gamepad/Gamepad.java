@@ -22,6 +22,9 @@ import android.widget.ImageView;
 
 import androidx.core.content.res.ResourcesCompat;
 import androidx.core.math.MathUtils;
+import androidx.preference.PreferenceManager;
+
+import java.util.Map;
 
 import net.kdt.pojavlaunch.GrabListener;
 import net.kdt.pojavlaunch.utils.LwjglGlfwKeycode;
@@ -89,6 +92,13 @@ public class Gamepad implements GrabListener, GamepadHandler {
     private final MCOptionUtils.MCOptionListener mGuiScaleListener = () -> notifyGUISizeChange(getMcScale());
 
     public Gamepad(View contextView, InputDevice inputDevice){
+        // Read in the game process when the controller is first used. Settings are saved in
+        // the launcher process, so the settings page asks the player to restart the HD game.
+        Map<String, ?> bindings = PreferenceManager.getDefaultSharedPreferences(
+                contextView.getContext()).getAll();
+        GamepadBindings.apply(bindings, mGameMap);
+        GamepadBindings.apply(bindings, mMenuMap);
+
         mScreenChoreographer = Choreographer.getInstance();
         Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
             @Override
@@ -302,7 +312,7 @@ public class Gamepad implements GrabListener, GamepadHandler {
         if(lastGrabbingValue == isGrabbing) return;
 
         // Switch grabbing state then
-        mCurrentMap.resetPressedState();
+        releaseAllInputs();
         if(isGrabbing){
             mCurrentMap = mGameMap;
             mPointerImageView.setVisibility(View.INVISIBLE);
@@ -311,13 +321,25 @@ public class Gamepad implements GrabListener, GamepadHandler {
         }
 
         mCurrentMap = mMenuMap;
-        sendDirectionalKeycode(mCurrentJoystickDirection, false, mGameMap); // removing what we were doing
 
         CallbackBridge.sendCursorPos(CallbackBridge.windowWidth/2f, CallbackBridge.windowHeight/2f);
         placePointerView(CallbackBridge.physicalWidth/2, CallbackBridge.physicalHeight/2);
         mPointerImageView.setVisibility(View.VISIBLE);
         // Sensitivity in menu is MC and HARDWARE resolution dependent
         mMouseSensitivity = 19 * mScaleFactor / mSensitivityFactor;
+    }
+
+    /** Release rebound keys as well as mouse buttons when leaving the game or changing modes. */
+    public void releaseAllInputs() {
+        mCurrentMap.resetPressedState();
+        sendDirectionalKeycode(mCurrentJoystickDirection, false, mCurrentMap);
+        mCurrentJoystickDirection = DIRECTION_NONE;
+        mLeftJoystick.setXAxisValue(0);
+        mLeftJoystick.setYAxisValue(0);
+        mRightJoystick.setXAxisValue(0);
+        mRightJoystick.setYAxisValue(0);
+        mLastHorizontalValue = 0;
+        mLastVerticalValue = 0;
     }
 
     @Override

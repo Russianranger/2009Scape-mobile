@@ -39,6 +39,7 @@ I used AI.
 | Optional system UI | Keeps the status bar and the navigation buttons on screen. Changable in Settings. |
 | Nameplates | Craftify ships with the app. |
 | Better keyboard integration | The on-screen keyboard covered game, now the game scales to fit. |
+| Controller key bindings (HD) | In Settings → Control customization → Controller settings → Controller key bindings, choose a keyboard key for each button, trigger, D-pad direction, or directional stick input. Choices save automatically and apply after restarting the HD game. Each input can keep its default action or be unbound, and all bindings can be reset. See [controller bindings](docs/controller-bindings.md). |
 
 ## Fixed
 
