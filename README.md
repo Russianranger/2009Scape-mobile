@@ -64,7 +64,7 @@ Battery use might still be high.
 
 ## Install
 
-Grab the APK from [Releases](https://github.com/DaveRune/2009Scape-mobile/releases) and install it. Android will warn you about installing outside the Play Store, which is expected.
+Grab the APK from [Releases](https://github.com/Russianranger/2009Scape-mobile/releases) and install it. Android will warn you about installing outside the Play Store, which is expected. See the [3.2 release notes](docs/releases/3.2.md) for the controller settings and installation details.
 
 ## Build
 

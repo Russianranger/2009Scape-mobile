@@ -11,11 +11,11 @@ def clientJar = file("$projectDir/src/main/assets/rt4.jar")
 // sits above that range to install over them. Raise both of these for every release.
 // The name must not match a property of the defaultConfig block, or that wins and this is ignored.
 static def getReleaseNumber() {
-    return 9950001
+    return 9950002
 }
 
 def getVersionName = {
-    return "hd-3.1"
+    return "hd-3.2"
 }
 
 configurations {
