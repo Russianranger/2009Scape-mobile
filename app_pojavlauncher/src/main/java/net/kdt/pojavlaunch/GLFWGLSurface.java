@@ -683,6 +683,10 @@ public class GLFWGLSurface extends View implements GrabListener {
         return (event.getFlags() & KeyEvent.FLAG_FALLBACK) == KeyEvent.FLAG_FALLBACK;
     }
 
+    public void releaseGamepadInputs() {
+        if (mGamepad != null) mGamepad.releaseAllInputs();
+    }
+
     private void sendStylusButton(MotionEvent e) {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:

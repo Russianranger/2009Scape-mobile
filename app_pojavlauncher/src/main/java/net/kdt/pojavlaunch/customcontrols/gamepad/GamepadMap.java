@@ -7,12 +7,7 @@ public class GamepadMap {
     public static final int MOUSE_SCROLL_DOWN = -1;
     public static final int MOUSE_SCROLL_UP = -2;
 
-    /*
-    This class is just here to store the mapping
-    can be modified to create re-mappable controls I guess
-
-    Be warned, you should define ALL keys if you want to avoid a non defined exception
-   */
+    // Default mappings are kept here; GamepadBindings applies saved keyboard overrides.
 
     public final GamepadButton BUTTON_A = new GamepadButton();
     public final GamepadButton BUTTON_B = new GamepadButton();
@@ -153,6 +148,31 @@ public class GamepadMap {
                                     SHOULDER_LEFT, SHOULDER_RIGHT,
                                     THUMBSTICK_LEFT, THUMBSTICK_RIGHT,
                                     DPAD_UP, DPAD_RIGHT, DPAD_DOWN, DPAD_LEFT};
+    }
+
+    public int[] getBinding(GamepadBindings.Input input) {
+        switch (input) {
+            case STICK_UP: return DIRECTION_FORWARD;
+            case STICK_RIGHT: return DIRECTION_RIGHT;
+            case STICK_DOWN: return DIRECTION_BACKWARD;
+            case STICK_LEFT: return DIRECTION_LEFT;
+            default: return getButtons()[input.ordinal()].keycodes;
+        }
+    }
+
+    public void setBinding(GamepadBindings.Input input, int[] keycodes) {
+        switch (input) {
+            case STICK_UP: DIRECTION_FORWARD = keycodes; break;
+            case STICK_RIGHT: DIRECTION_RIGHT = keycodes; break;
+            case STICK_DOWN: DIRECTION_BACKWARD = keycodes; break;
+            case STICK_LEFT: DIRECTION_LEFT = keycodes; break;
+            default:
+                GamepadButton button = getButtons()[input.ordinal()];
+                button.keycodes = keycodes;
+                // A rebound keyboard key follows press/release, including the default toggle on R3.
+                button.isToggleable = false;
+                break;
+        }
     }
 
     /*

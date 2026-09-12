@@ -157,6 +157,11 @@
     <PreferenceCategory
         android:title="@string/preference_category_controller_settings"
         >
+        <Preference
+            android:key="gamepad_bindings_screen"
+            android:title="@string/gamepad_bindings_title"
+            android:summary="@string/gamepad_bindings_summary"
+            android:fragment="net.kdt.pojavlaunch.prefs.screens.LauncherPreferenceGamepadFragment" />
         <net.kdt.pojavlaunch.prefs.GamepadRemapPreference
             android:title="@string/preference_wipe_controller_title"
             android:summary="@string/preference_wipe_controller_description"

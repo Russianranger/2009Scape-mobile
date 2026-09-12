@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gamepad_bindings_title">Controller key bindings</string>
+    <string name="gamepad_bindings_summary">Choose the keyboard key for each controller input in HD mode.</string>
+    <string name="gamepad_bindings_help">Tap an input to choose a keyboard key. Choices save automatically; restart the HD game to apply them. Default keeps the original action shown for pointer mode. Custom keys apply in both pointer and captured cursor modes. The directional stick is the right stick in pointer mode and the left stick when the cursor is captured; the other stick still moves the mouse.</string>
+    <string name="gamepad_bindings_inputs_title">Controller inputs</string>
+    <string name="gamepad_binding_default">Default: %1$s</string>
+    <string name="gamepad_binding_unbound">Unbound</string>
+    <string name="gamepad_binding_mouse_left">Left mouse button</string>
+    <string name="gamepad_binding_mouse_right">Right mouse button</string>
+    <string name="gamepad_binding_scroll_up">Scroll up</string>
+    <string name="gamepad_binding_scroll_down">Scroll down</string>
+    <string name="gamepad_bindings_reset_title">Reset key bindings</string>
+    <string name="gamepad_bindings_reset_summary">Restore all original controller actions.</string>
+    <string name="gamepad_bindings_reset_message">Reset all controller key bindings to their defaults? Restart the HD game afterward to apply the reset.</string>
+    <!-- Order matches GamepadBindings.Input. Button names follow Android controller labels. -->
+    <string-array name="gamepad_binding_inputs">
+        <item>A button</item>
+        <item>B button</item>
+        <item>X button</item>
+        <item>Y button</item>
+        <item>Select / Back</item>
+        <item>Start</item>
+        <item>Left trigger (L2 / LT)</item>
+        <item>Right trigger (R2 / RT)</item>
+        <item>Left shoulder (L1 / LB)</item>
+        <item>Right shoulder (R1 / RB)</item>
+        <item>Left stick click (L3)</item>
+        <item>Right stick click (R3)</item>
+        <item>D-pad up</item>
+        <item>D-pad right</item>
+        <item>D-pad down</item>
+        <item>D-pad left</item>
+        <item>Directional stick up</item>
+        <item>Directional stick right</item>
+        <item>Directional stick down</item>
+        <item>Directional stick left</item>
+    </string-array>
+</resources>

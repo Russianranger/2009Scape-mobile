@@ -74,7 +74,9 @@ public class GamepadJoystick {
 
     public int getHeightDirection(){
         if(getMagnitude() <= getDeadzone()) return DIRECTION_NONE;
-        return ((int) ((getAngleDegree()+22.5)/45)) % 8;
+        // atan2 returns negative angles for the lower half of the stick. Normalize before
+        // choosing a sector, otherwise down/left directions can become negative (or NONE).
+        return ((int) ((getAngleDegree() + 360 + 22.5) / 45)) % 8;
     }
 
     /**
