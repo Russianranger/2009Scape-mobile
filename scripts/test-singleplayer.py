@@ -67,7 +67,9 @@ def main():
                     time.sleep(.2)
                 else: raise AssertionError('Memory diagnostics missing: ' + logpath.read_text())
                 for sample in samples:
-                    assert 0 < sample['heapUsedBytes'] <= sample['heapCommittedBytes'] <= sample['heapMaxBytes']
+                    # The first MXBean snapshot can report zero before allocation accounting updates.
+                    assert 0 <= sample['heapUsedBytes'] <= sample['heapCommittedBytes'] <= sample['heapMaxBytes']
+                    if sample['phase'] != 'startup': assert sample['heapUsedBytes'] > 0
                     assert sample['heapMaxBytes'] == 2 * 1024 ** 3
                     assert sample['threads'] > 0 and sample['rssKiB'] > 0
                     assert sample['gcCount'] >= 0 and sample['gcTimeMs'] >= 0
