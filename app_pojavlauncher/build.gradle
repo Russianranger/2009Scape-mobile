@@ -12,11 +12,11 @@ def generatedServer = file("$buildDir/generated/singleplayer")
 // sits above that range to install over them. Raise both of these for every release.
 // The name must not match a property of the defaultConfig block, or that wins and this is ignored.
 static def getReleaseNumber() {
-    return 9950003
+    return 9950004
 }
 
 def getVersionName = {
-    return "hd-3.3-singleplayer-preview.1"
+    return "hd-3.3-singleplayer-preview.2"
 }
 
 configurations {

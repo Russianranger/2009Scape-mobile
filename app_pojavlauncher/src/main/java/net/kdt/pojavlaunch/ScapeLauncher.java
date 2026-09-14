@@ -70,7 +70,9 @@ public class ScapeLauncher extends BaseActivity {
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
         ProgressKeeper.removeTaskCountListener(mProgressServiceKeeper);
+        ProgressKeeper.removeTaskCountListener(mProgressLayout);
+        mProgressLayout.cleanUpObservers();
+        super.onDestroy();
     }
 }

@@ -72,3 +72,9 @@ screen-lock tests with both server and client active.
 Known upstream behavior: the update worker can log `InterruptedException: sleep interrupted`
 during normal shutdown. Do not treat exit code 0 alone as evidence that world saving succeeded;
 the host persistence test also validates stored JSON. Export logs when reporting a device failure.
+
+## Preview 2 interface and diagnostics
+
+Single-player is in the launcher footer next to Settings. Its HD/SD buttons start the local world if needed and open the client when ready. World options contains the heap limit and backup/restore actions; Diagnostics contains log export and the live log. Save and stop remains visible in the main controls and notification.
+
+Logs now include passive server JVM memory/GC/thread/RSS samples every 30 seconds. See [the Thor log review](diagnostics-2026-09-14.md) for interpretation, the fixed launcher listener retention, and a suggested longer device test. A short successful session cannot prove the absence of memory leaks.

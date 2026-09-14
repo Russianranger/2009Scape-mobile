@@ -113,7 +113,8 @@ def main():
                 put(out, item.filename, content)
         classes = work / 'classes'
         classes.mkdir()
-        javac('--release', '11', '-cp', work / 'server.jar', '-d', classes, ROOT / 'server-runtime/src/scape/ServerMain.java')
+        javac('--release', '11', '-cp', work / 'server.jar', '-d', classes,
+              *sorted((ROOT / 'server-runtime/src/scape').glob('*.java')))
         with zipfile.ZipFile(work / 'bootstrap.jar', 'w') as out:
             for p in sorted(classes.rglob('*.class')):
                 put(out, str(p.relative_to(classes)), p.read_bytes())

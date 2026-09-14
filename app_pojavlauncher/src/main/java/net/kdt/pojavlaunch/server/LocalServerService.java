@@ -24,12 +24,16 @@ public final class LocalServerService extends Service {
     private volatile String token;
     private PowerManager.WakeLock wake;
     private ServerFiles files;
+    private Runnable shutdownWarning;
     private final Messenger messenger = new Messenger(new Handler(Looper.getMainLooper(), msg -> {
         if (msg.what != STATUS || msg.replyTo == null) return false;
         Bundle data = new Bundle();
         data.putString("state", state); data.putString("detail", detail);
         data.putBoolean("busy", worker != null); data.putBoolean("ready", "Running".equals(state));
-        synchronized (tail) { data.putString("log", tail.toString()); }
+        // Avoid allocating and sending a log snapshot while diagnostics are collapsed.
+        if (msg.getData().getBoolean("includeLog")) {
+            synchronized (tail) { data.putString("log", tail.toString()); }
+        }
         Message reply = Message.obtain(null, STATUS); reply.setData(data);
         try { msg.replyTo.send(reply); } catch (RemoteException ignored) {}
         return true;
@@ -128,9 +132,14 @@ public final class LocalServerService extends Service {
             if (process != null && process.isAlive()) {
                 try { process.waitFor(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             }
+            if (process != null && !process.isAlive()) {
+                close(process.getOutputStream()); close(process.getInputStream()); close(process.getErrorStream());
+            }
             child = null;
             if (files != null) try { ServerFiles.write(new File(files.root, "last-session.txt"), state + "\n" + detail + "\n"); } catch (IOException ignored) {}
             main.post(() -> {
+                if (shutdownWarning != null) main.removeCallbacks(shutdownWarning);
+                shutdownWarning = null;
                 worker = null;
                 if (wake != null && wake.isHeld()) wake.release();
                 wake = null; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf();
@@ -171,12 +180,17 @@ public final class LocalServerService extends Service {
         stopping = true; status("Stopping", "Saving and stopping the local world");
         Process process = child;
         if (process != null) sendStop(process);
-        main.postDelayed(() -> {
+        shutdownWarning = () -> {
             if (worker != null && stopping && child == process && process != null && process.isAlive()) {
                 detail = "Shutdown is taking longer than expected. View logs or force stop if necessary.";
                 showNotification();
             }
-        }, 30000);
+        };
+        main.postDelayed(shutdownWarning, 30000);
+    }
+
+    private static void close(Closeable stream) {
+        try { stream.close(); } catch (IOException ignored) {}
     }
 
     private synchronized void sendStop(Process process) {

@@ -1,9 +1,9 @@
 <resources>
-    <string name="singleplayer_title">Single-player server</string>
-    <string name="singleplayer_intro">Start your local world, then play with the existing client. First setup is automatic and works offline.</string>
+    <string name="singleplayer_title">Single-player</string>
+    <string name="singleplayer_intro">Your own 2009Scape world, on this device. First setup is automatic and works offline.</string>
     <string name="singleplayer_start">Start server</string>
-    <string name="singleplayer_hd">Play HD locally</string>
-    <string name="singleplayer_sd">Play SD locally</string>
+    <string name="singleplayer_hd">Play High Detail</string>
+    <string name="singleplayer_sd">Play Standard Detail</string>
     <string name="singleplayer_stop">Save and stop</string>
     <string name="singleplayer_logs">Export logs</string>
     <string name="singleplayer_backup">Back up world</string>
@@ -12,4 +12,16 @@
     <string name="singleplayer_force">Force stop</string>
     <string name="singleplayer_requirement">The integrated server requires Android 13 or newer on ARM64. The existing client remains available from the launcher.</string>
     <string name="singleplayer_preservation">The server keeps running when you leave this screen. Use Save and stop when finished. Back up your world before uninstalling or clearing app data.</string>
+    <string name="singleplayer_entry">Single-player</string>
+    <string name="singleplayer_back">Back to launcher</string>
+    <string name="singleplayer_connecting">Connecting…</string>
+    <string name="singleplayer_play_hint">Choose a detail level to start your world and open the client automatically.</string>
+    <string name="singleplayer_tools_show">World options ▾</string>
+    <string name="singleplayer_tools_hide">World options ▴</string>
+    <string name="singleplayer_diagnostics_show">Diagnostics ▾</string>
+    <string name="singleplayer_diagnostics_hide">Diagnostics ▴</string>
+    <string name="singleplayer_diagnostics_hint">Logs include server memory and garbage collection measurements every 30 seconds. Export after a longer play session to check memory trends.</string>
+    <string name="singleplayer_log_empty">Server logs will appear here.</string>
+    <string name="singleplayer_online_hd">Play online in high detail</string>
+    <string name="singleplayer_online_sd">Play online in standard detail</string>
 </resources>

@@ -3,7 +3,6 @@
 import json
 import os
 from pathlib import Path
-import select
 import shutil
 import socket
 import sqlite3
@@ -57,6 +56,22 @@ def main():
                 matches = [line.split()[1].split(':')[0] for line in listeners if line.split()[1].endswith(':' + port) and line.split()[3] == '0A']
                 # HotSpot may use an IPv4-mapped IPv6 socket on dual-stack hosts.
                 assert len(matches) == 1 and matches[0] in ('0100007F', '0000000000000000FFFF00000100007F'), matches
+                # Real JVM measurements must arrive during normal operation; no forced GC.
+                deadline = time.monotonic() + 40
+                while time.monotonic() < deadline:
+                    samples = [json.loads(line.removeprefix('[scape-memory] '))
+                               for line in logpath.read_text().splitlines() if line.startswith('[scape-memory] ')]
+                    phases = {sample['phase'] for sample in samples}
+                    if {'startup', 'ready', 'periodic'} <= phases: break
+                    if p.poll() is not None: raise AssertionError(logpath.read_text())
+                    time.sleep(.2)
+                else: raise AssertionError('Memory diagnostics missing: ' + logpath.read_text())
+                for sample in samples:
+                    assert 0 < sample['heapUsedBytes'] <= sample['heapCommittedBytes'] <= sample['heapMaxBytes']
+                    assert sample['heapMaxBytes'] == 2 * 1024 ** 3
+                    assert sample['threads'] > 0 and sample['rssKiB'] > 0
+                    assert sample['gcCount'] >= 0 and sample['gcTimeMs'] >= 0
+                assert samples[-1]['uptimeMs'] > samples[0]['uptimeMs']
                 p.stdin.write('stop\n'); p.stdin.flush()
                 assert p.wait(timeout=45) == 0, logpath.read_text()
                 assert 'Terminating' in logpath.read_text(), 'Shutdown hook did not run'
@@ -75,7 +90,7 @@ def main():
         assert store.exists(), 'World store not persisted'
         assert json.loads(sentinel.read_text()) == {'preserved': 'android-save-reload', 'value': 42}
         for entry in store.glob('*.json'): json.loads(entry.read_text())
-        print(f'Cycle {cycle+1}: boot, local bind, JS5 handshake, shutdown, SQLite integrity and world store passed')
+        print(f'Cycle {cycle+1}: boot, local bind, JS5 handshake, memory samples, shutdown, SQLite integrity and world store passed')
     print('Host integration passed. Android execution and interactive player save/reload remain device tests.')
 
 
