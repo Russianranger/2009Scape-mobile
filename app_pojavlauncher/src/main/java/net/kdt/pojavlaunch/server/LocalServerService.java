@@ -6,6 +6,7 @@ import android.os.*;
 import androidx.core.app.NotificationCompat;
 import net.kdt.pojavlaunch.R;
 import java.io.*;
+import java.lang.Process;
 import java.net.*;
 import java.nio.channels.*;
 import java.util.UUID;
@@ -16,6 +17,13 @@ public final class LocalServerService extends Service {
     public static final int STATUS = 1;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final StringBuilder tail = new StringBuilder();
+    private volatile String state = "Stopped", detail = "Start a local world to play single-player.";
+    private volatile Thread worker;
+    private volatile Process child;
+    private volatile boolean stopping, readyMarker, forced, saveCompleted, saveError;
+    private volatile String token;
+    private PowerManager.WakeLock wake;
+    private ServerFiles files;
     private final Messenger messenger = new Messenger(new Handler(Looper.getMainLooper(), msg -> {
         if (msg.what != STATUS || msg.replyTo == null) return false;
         Bundle data = new Bundle();
@@ -26,13 +34,7 @@ public final class LocalServerService extends Service {
         try { msg.replyTo.send(reply); } catch (RemoteException ignored) {}
         return true;
     }));
-    private volatile String state = "Stopped", detail = "Start a local world to play single-player.";
-    private volatile Thread worker;
-    private volatile Process child;
-    private volatile boolean stopping, readyMarker, forced;
-    private volatile String token;
-    private PowerManager.WakeLock wake;
-    private ServerFiles files;
+
 
     @Override public IBinder onBind(Intent intent) { return messenger.getBinder(); }
 
@@ -47,7 +49,7 @@ public final class LocalServerService extends Service {
         if (Build.VERSION.SDK_INT < 33 || !android.os.Process.is64Bit() || !Build.SUPPORTED_ABIS[0].equals("arm64-v8a")) {
             state = "Error"; detail = "The integrated server requires Android 13 or newer on ARM64."; stopSelf(); return START_NOT_STICKY;
         }
-        stopping = false; readyMarker = false; forced = false; token = UUID.randomUUID().toString();
+        stopping = false; readyMarker = false; forced = false; saveCompleted = false; saveError = false; token = UUID.randomUUID().toString();
         state = "Preparing"; detail = "Preparing local server";
         NotificationManager nm = (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel("singleplayer", "Single-player server", NotificationManager.IMPORTANCE_LOW));
@@ -112,8 +114,8 @@ public final class LocalServerService extends Service {
             reader.join(3000);
             log("[app] Server exited with code " + exit);
             if (forced) status("Error", "Server was forced to stop. Recent progress may be missing.");
-            else if (stopping && exit == 0) status("Stopped", "Server stopped after its normal save-and-shutdown sequence.");
-            else if (exit != 0 || !readyMarker) status("Error", "Server exited (code " + exit + "). Open or export the log.");
+            else if (stopping && readyMarker && exit == 0 && saveCompleted && !saveError) status("Stopped", "Server stopped after its normal save-and-shutdown sequence.");
+            else if (exit != 0 || !readyMarker || saveError || (stopping && !saveCompleted)) status("Error", "Server exited (code " + exit + "). Open or export the log.");
             else status("Stopped", "Server stopped.");
         } catch (Throwable e) {
             log(android.util.Log.getStackTraceString(e));
@@ -144,6 +146,8 @@ public final class LocalServerService extends Service {
                     String text = line.toString().replaceAll("\u001B\\[[;\\d]*[ -/]*[@-~]", "");
                     log(text);
                     if (text.equals("[scape] SERVER_READY " + token)) readyMarker = true;
+                    if (text.contains("Server successfully terminated!")) saveCompleted = true;
+                    if (text.contains("core.ServerStore.save(") || text.contains("ScriptException") || text.contains("Failed to save")) saveError = true;
                     line.setLength(0);
                 } else if (c != '\r') line.append((char)c);
             }

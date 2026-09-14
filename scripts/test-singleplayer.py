@@ -50,10 +50,13 @@ def main():
                     response = client.recv(1)
                     assert response == b'\x00', f'Unexpected JS5 response: {response!r}'
                 # Check the socket really is local, not wildcard, in Linux procfs.
-                listeners = Path('/proc/net/tcp').read_text().splitlines()[1:]
                 port = f'{43595:04X}'
-                matches = [line.split()[1] for line in listeners if line.split()[1].endswith(':' + port) and line.split()[3] == '0A']
-                assert matches == ['0100007F:' + port], matches
+                listeners = []
+                for proc in ('/proc/net/tcp', '/proc/net/tcp6'):
+                    if Path(proc).exists(): listeners += Path(proc).read_text().splitlines()[1:]
+                matches = [line.split()[1].split(':')[0] for line in listeners if line.split()[1].endswith(':' + port) and line.split()[3] == '0A']
+                # HotSpot may use an IPv4-mapped IPv6 socket on dual-stack hosts.
+                assert len(matches) == 1 and matches[0] in ('0100007F', '0000000000000000FFFF00000100007F'), matches
                 p.stdin.write('stop\n'); p.stdin.flush()
                 assert p.wait(timeout=45) == 0, logpath.read_text()
                 assert 'Terminating' in logpath.read_text(), 'Shutdown hook did not run'

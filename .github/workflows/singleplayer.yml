@@ -2,8 +2,6 @@ name: Single-player preview
 on:
   push:
     branches: [codex/integrated-singleplayer]
-  pull_request:
-    paths: ['server-runtime/**', 'scripts/*singleplayer*', 'app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/server/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -46,3 +44,28 @@ jobs:
             app_pojavlauncher/build/test-results/
             app_pojavlauncher/build/singleplayer-test/*.log
           if-no-files-found: ignore
+
+  preview:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/integrated-singleplayer' && github.repository == 'Russianranger/2009Scape-mobile'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: singleplayer-preview-1
+          path: out
+      - name: Publish tested branch APK as a prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd out
+          sha256sum --check 2009Scape-singleplayer-preview-1.apk.sha256
+          cd ..
+          if gh release view singleplayer-preview-1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Preview already exists; use the workflow artifact for this commit. Published previews are immutable.'
+          else
+            gh release create singleplayer-preview-1 out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title 'Single-player preview 1' --notes-file docs/releases/singleplayer-preview-1.md
+          fi

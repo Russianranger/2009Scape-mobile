@@ -111,6 +111,7 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += '**/libscape*.so' // Preserve checksum-pinned server runtime binaries.
         }
     }
 
