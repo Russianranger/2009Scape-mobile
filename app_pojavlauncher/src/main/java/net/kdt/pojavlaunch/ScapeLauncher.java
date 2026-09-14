@@ -49,6 +49,8 @@ public class ScapeLauncher extends BaseActivity {
             startActivity(intent);
         });
         settings.setOnClickListener(view -> showBottomDialog());
+        findViewById(R.id.singleplayer).setOnClickListener(view ->
+            startActivity(new Intent(this, net.kdt.pojavlaunch.server.SingleplayerActivity.class)));
     }
 
 

@@ -1,0 +1,15 @@
+<resources>
+    <string name="singleplayer_title">Single-player server</string>
+    <string name="singleplayer_intro">Start your local world, then play with the existing client. First setup is automatic and works offline.</string>
+    <string name="singleplayer_start">Start server</string>
+    <string name="singleplayer_hd">Play HD locally</string>
+    <string name="singleplayer_sd">Play SD locally</string>
+    <string name="singleplayer_stop">Save and stop</string>
+    <string name="singleplayer_logs">Export logs</string>
+    <string name="singleplayer_backup">Back up world</string>
+    <string name="singleplayer_restore">Restore world backup</string>
+    <string name="singleplayer_memory">Server memory limit</string>
+    <string name="singleplayer_force">Force stop</string>
+    <string name="singleplayer_requirement">The integrated server requires Android 13 or newer on ARM64. The existing client remains available from the launcher.</string>
+    <string name="singleplayer_preservation">The server keeps running when you leave this screen. Use Save and stop when finished. Back up your world before uninstalling or clearing app data.</string>
+</resources>

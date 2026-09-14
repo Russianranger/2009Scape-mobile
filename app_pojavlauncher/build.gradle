@@ -5,17 +5,18 @@ plugins {
 def pluginSources = file("$rootDir/plugins")
 def generatedPluginAssets = file("$buildDir/generated/plugin-assets")
 def clientJar = file("$projectDir/src/main/assets/rt4.jar")
+def generatedServer = file("$buildDir/generated/singleplayer")
 
 // Android refuses to install a build numbered lower than the one already on the device.
 // The project this is forked from numbers its releases 9934841 plus the CI run number, so this
 // sits above that range to install over them. Raise both of these for every release.
 // The name must not match a property of the defaultConfig block, or that wins and this is ignored.
 static def getReleaseNumber() {
-    return 9950002
+    return 9950003
 }
 
 def getVersionName = {
-    return "hd-3.2"
+    return "hd-3.3-singleplayer-preview.1"
 }
 
 configurations {
@@ -121,6 +122,8 @@ android {
     sourceSets {
         main {
             assets.srcDirs += generatedPluginAssets
+            assets.srcDirs += new File(generatedServer, 'assets')
+            jniLibs.srcDirs += new File(generatedServer, 'jniLibs')
         }
     }
 }
@@ -167,6 +170,16 @@ task packPlugins {
 // Everything downstream of preBuild then has a path to it, including the lint tasks that read the assets and
 // refuse to run against a folder produced by a task they have no ordering against.
 preBuild.dependsOn packPlugins
+
+task prepareSingleplayer(type: Exec) {
+    inputs.dir file("$rootDir/server-runtime")
+    inputs.file file("$rootDir/scripts/prepare-singleplayer.py")
+    outputs.dir generatedServer
+    outputs.upToDateWhen { new File(generatedServer, 'jniLibs/arm64-v8a/libscape_server.so').isFile() }
+    doFirst { environment 'ANDROID_NDK_HOME', android.ndkDirectory.absolutePath }
+    commandLine 'python3', "$rootDir/scripts/prepare-singleplayer.py"
+}
+preBuild.dependsOn prepareSingleplayer
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
