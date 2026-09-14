@@ -13,6 +13,8 @@ Termux, proot or a desktop GUI. The existing client runtime must already be conf
 3. The existing client opens after that server reports readiness. Both game and cache
    connections use the private local profile. The normal launcher buttons keep using the
    existing connection configuration.
+   Close a running online client before switching it to local play. Reopening the same local
+   client from this screen brings its existing activity forward instead of creating another JVM.
 4. Return to the server screen through its notification. Use **Save and stop** when finished.
 5. While stopped, **Back up world** exports the complete world, including characters,
    economy and cache. **Restore world backup** accepts these version-matched backups and

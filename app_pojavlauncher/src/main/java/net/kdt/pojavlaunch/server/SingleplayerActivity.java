@@ -39,7 +39,7 @@ public final class SingleplayerActivity extends BaseActivity {
         stop.setEnabled(busy && !state.equals("Stopping"));
         backup.setEnabled(!busy && !operation); restore.setEnabled(!busy && !operation);
         force.setVisibility(state.equals("Stopping") ? View.VISIBLE : View.GONE);
-        if (state.equals("Error") || (state.equals("Stopped") && !busy && !awaitingStartAck)) pendingClient = "";
+        if (!awaitingStartAck && (state.equals("Error") || (state.equals("Stopped") && !busy))) pendingClient = "";
         if (ready && resumed && !pendingClient.isEmpty()) launchClient();
         return true;
     }));
