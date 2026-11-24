@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -55,6 +56,17 @@ with ExitStack() as resources:
     resources.callback(server.terminate)
     save('abis.txt', 'shell', 'getprop', 'ro.product.cpu.abilist')
     save('bridge.txt', 'shell', 'getprop', 'ro.dalvik.vm.native.bridge')
+    upgrade = sys.argv[2:] == ['upgrade']
+    if upgrade:
+        adb('install', '-r', '-g', 'preview3.apk')
+        adb('shell','am','start','-W','-n',pkg+'/net.kdt.pojavlaunch.TestStorageActivity')
+        for _ in range(110):
+            p = adb('shell', f'run-as {pkg} ls plugins/ViewDistance/plugin.class plugins.version',stdout=subprocess.PIPE,check=False)
+            if p.returncode==0 and installed(): break
+            time.sleep(2)
+        else: raise RuntimeError('Preview3 game/runtime/plugins did not stage')
+        save('preview3-plugins.txt','shell','run-as',pkg,'cat','plugins.version')
+        adb('shell',f"run-as {pkg} sh -c 'mkdir -p files && echo preview3-test-data > files/qa-upgrade-marker'")
     adb('install', '-r', '-g', *(['--abi', 'arm64-v8a'] if arm64 else []), 'client.apk')
     adb('shell', 'settings', 'put', 'secure', 'immersive_mode_confirmations', 'confirmed')
     adb('reverse', 'tcp:43595', 'tcp:43595')
@@ -72,15 +84,12 @@ with ExitStack() as resources:
     else:
         save('boot-logcat.txt','logcat','-d','-v','threadtime',limit=2000000)
         raise RuntimeError('No complete Java 8 and local world found')
+    if upgrade:
+        if save('upgrade-marker.txt','exec-out','run-as',pkg,'cat','files/qa-upgrade-marker').strip() != 'preview3-test-data':
+            raise RuntimeError('Existing app data missing after Android APK update')
+    save('current-plugins.txt','shell','run-as',pkg,'cat','plugins.version')
     for filename in ('config.json', 'singleplayer-client.json'):
         adb('shell', f"run-as {pkg} sh -c 'cat > {filename}'", input=json.dumps(cfg).encode())
-    if sys.argv[2:] == ['draw-probe']:
-        adb('push','draw-probe.jar','/data/local/tmp/scape-lwjgl.jar')
-        adb('shell',f'cp /data/local/tmp/scape-lwjgl.jar /sdcard/Android/data/{pkg}/files/lwjgl3/lwjgl-glfw-classes.jar')
-    option = {'vbo-off': 'LIBGL_USEVBO=0', 'force-bind': 'LIBGL_BUFFER_FORCE_BIND=1'}.get(sys.argv[2] if len(sys.argv)>2 else '')
-    if option:
-        adb('shell', f'echo {option} > /sdcard/Android/data/{pkg}/files/custom_env.txt')
-        adb('shell', f'cat /sdcard/Android/data/{pkg}/files/custom_env.txt')
     proc = subprocess.Popen(['sudo','tcpdump','-ni','lo','-l','tcp port 43595'], stdout=resources.enter_context((out/'connections.txt').open('w')), stderr=subprocess.DEVNULL)
     resources.callback(subprocess.run, ['sudo', 'kill', '-TERM', str(proc.pid)], check=False)
     adb('shell', 'am', 'start', '-W', '-n', f'{pkg}/net.kdt.pojavlaunch.{activity}', '--ez', 'scape.singleplayer', 'true')
@@ -93,21 +102,33 @@ with ExitStack() as resources:
         time.sleep(max(0, start + tick - time.monotonic()))
         save(f'screen-{tick}.png', 'exec-out', 'screencap', '-p')
         if shutil.which('tesseract'):
-            text = subprocess.run(['tesseract', str(out / f'screen-{tick}.png'), 'stdout', '--psm', '11'],
-                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
+            text = '\n'.join(subprocess.run(['tesseract',str(out/f'screen-{tick}.png'),'stdout','--psm',p],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout for p in ('11','3','12'))
             print(tick, text, flush=True)
             (out / f'ocr-{tick}.txt').write_text(text)
             if re.search(r'existing user|new user|create (an? )?account|returning player|existing account|username|password|log\s*in', text, re.I):
                 seen_login = True
-                rows = subprocess.run(['tesseract', str(out / f'screen-{tick}.png'), 'stdout', '--psm', '11','tsv'],
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,text=True).stdout
-                for word in csv.DictReader(io.StringIO(rows), delimiter='\t'):
-                    if word['text'].strip().lower() in ('log', 'login', 'existing') and float(word['conf'])>35:
-                        x = int(word['left']) + int(word['width'])//2
-                        y = int(word['top']) + int(word['height'])//2
-                        adb('shell','input','tap',str(x),str(y))
-                        time.sleep(3)
-                        save('login-tapped.png','exec-out','screencap','-p')
+                screen = out / f'screen-{tick}.png'
+                width, height = struct.unpack('>II',screen.read_bytes()[16:24])
+                coords=[]
+                for psm in ('3','12','6','11'):
+                    rows = subprocess.run(['tesseract',str(screen),'stdout','--psm',psm,'tsv'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout
+                    for word in csv.DictReader(io.StringIO(rows),delimiter='\t'):
+                        if re.sub('[^a-z]','',word['text'].lower()) in ('log','login','existing'):
+                            x, y = (int(word['left'])+int(word['width'])//2, int(word['top'])+int(word['height'])//2)
+                            if x>width*.19 and x<width*.85 and y<height*.65:
+                                coords.append((x,y))
+                                break
+                    if coords: break
+                coords.extend([(width//2,int(height*.11)),(width//2,int(height*.25))])
+                for attempt,(x,y) in enumerate(coords):
+                    adb('shell','input','tap',str(x),str(y))
+                    time.sleep(2)
+                    after_name=f'login-tapped-{attempt}.png'
+                    save(after_name,'exec-out','screencap','-p')
+                    after='\n'.join(subprocess.run(['tesseract',str(out/after_name),'stdout','--psm',p],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout for p in ('11','6','3'))
+                    (out/f'after-tap-{attempt}.txt').write_text(after)
+                    if re.search(r'(user\s*name|pass\s*word|credentials|enter your)',after,re.I):
+                        shutil.copyfile(out/after_name, out/'login-tapped.png')
                         break
                 break
     cache_files('end')

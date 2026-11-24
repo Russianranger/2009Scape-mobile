@@ -50,6 +50,9 @@ jobs:
       matrix:
         mode: [hd, sd]
         source: [candidate]
+        include:
+          - mode: sd
+            source: upgrade
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,6 +66,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: tested-candidate-apk
+      - name: Fetch published Preview 3 for in-place upgrade
+        if: matrix.source == 'upgrade'
+        run: |
+          curl --fail --location --retry 3 -o preview3.apk "$(cat .github/client-exercise/apk-url)"
+          echo "$(cat .github/client-exercise/apk-sha256)  preview3.apk" | sha256sum --check
       - name: Start Android API 35 emulator
         run: |
           set -euo pipefail
