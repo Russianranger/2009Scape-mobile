@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - mode: sd
+          - mode: hd
             source: upgrade
     steps:
       - uses: actions/checkout@v4

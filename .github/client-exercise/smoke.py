@@ -123,7 +123,13 @@ with ExitStack() as resources:
                     if coords: break
                 coords.extend([(width//2,int(height*.11)),(width//2,int(height*.25))])
                 for attempt,(x,y) in enumerate(coords):
-                    adb('shell','input','tap',str(x),str(y))
+                    adb('shell','input','stylus','swipe',str(x),str(y),str(x),str(y),'220')
+                    if attempt == 1:
+                        # The primary mouse button in the stock Pojav layout clicks the last canvas position.
+                        adb('shell','input','tap',str(x),str(y))
+                        time.sleep(.25)
+                        px,py=str(int(width*.124)),str(int(height*.11))
+                        adb('shell','input','swipe',px,py,px,py,'180')
                     time.sleep(2)
                     after_name=f'login-tapped-{attempt}.png'
                     save(after_name,'exec-out','screencap','-p')
