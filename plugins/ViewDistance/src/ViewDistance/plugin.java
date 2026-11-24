@@ -14,7 +14,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Properties;
 
-@PluginMeta(author = "Dave", description = "Draws more of the world before it is culled, and can turn the fog off", version = 6.0)
+@PluginMeta(author = "Dave", description = "Draws more of the world before it is culled, and can turn the fog off", version = 6.1)
 public class plugin extends Plugin {
 
     private static final String CMD_DISTANCE = "::viewdistance";
@@ -50,7 +50,8 @@ public class plugin extends Plugin {
 
     @Override
     public void Draw(long elapsed) {
-        if (!fogNeedsRefresh) return;
+        // Login also draws through this hook in software mode, before any OpenGL context exists.
+        if (!fogNeedsRefresh || !API.IsHD()) return;
         reissueFog();
         fogNeedsRefresh = false;
     }

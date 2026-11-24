@@ -31,12 +31,12 @@ jobs:
       - name: Verify preview APK
         run: |
           mkdir -p out
-          cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk out/2009Scape-singleplayer-preview-3.apk
-          python3 scripts/verify_release.py out/2009Scape-singleplayer-preview-3.apk --build-tools "$ANDROID_HOME/build-tools/33.0.2" --version hd-3.3-singleplayer-preview.3 --version-code 9950005 --expected-cert-sha256 d0d0886a0d7e3486e6627f9b8011027fe3c6b0fb09424530b6d7be14f8c2cc33
-          python3 scripts/verify-singleplayer.py out/2009Scape-singleplayer-preview-3.apk
+          cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk out/2009Scape-singleplayer-preview-4.apk
+          python3 scripts/verify_release.py out/2009Scape-singleplayer-preview-4.apk --build-tools "$ANDROID_HOME/build-tools/33.0.2" --version hd-3.3-singleplayer-preview.4 --version-code 9950006 --expected-cert-sha256 d0d0886a0d7e3486e6627f9b8011027fe3c6b0fb09424530b6d7be14f8c2cc33
+          python3 scripts/verify-singleplayer.py out/2009Scape-singleplayer-preview-4.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: singleplayer-preview-3
+          name: singleplayer-preview-4
           path: out/*
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
@@ -58,17 +58,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: singleplayer-preview-3
+          name: singleplayer-preview-4
           path: out
       - name: Publish tested branch APK as a prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd out
-          sha256sum --check 2009Scape-singleplayer-preview-3.apk.sha256
+          sha256sum --check 2009Scape-singleplayer-preview-4.apk.sha256
           cd ..
-          if gh release view singleplayer-preview-3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view singleplayer-preview-4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Preview already exists; use the workflow artifact for this commit. Published previews are immutable.'
           else
-            gh release create singleplayer-preview-3 out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title 'Single-player preview 3' --notes-file docs/releases/singleplayer-preview-3.md
+            gh release create singleplayer-preview-4 out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false --title 'Single-player preview 4' --notes-file docs/releases/singleplayer-preview-4.md
           fi

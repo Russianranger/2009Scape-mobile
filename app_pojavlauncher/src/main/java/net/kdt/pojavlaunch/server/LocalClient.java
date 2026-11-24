@@ -3,6 +3,7 @@ package net.kdt.pojavlaunch.server;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.Intent;
+import android.content.Context;
 import net.kdt.pojavlaunch.MainActivity;
 import net.kdt.pojavlaunch.Tools;
 import org.json.JSONObject;
@@ -21,14 +22,14 @@ public final class LocalClient {
         } catch (Exception e) { android.util.Log.w("Singleplayer", "Cannot record client mode", e); }
         return Tools.DIR_DATA + (activity.getIntent().getBooleanExtra(EXTRA, false) ? "/singleplayer-client.json" : "/config.json");
     }
-    public static Intent intent(Activity activity, Class<?> client) throws Exception {
+    public static Intent intent(Context context, Class<?> client) throws Exception {
         File record = modeFile(client);
         int pid = -1;
         if (client == MainActivity.class) {
-            ActivityManager manager = (ActivityManager)activity.getSystemService(android.content.Context.ACTIVITY_SERVICE);
+            ActivityManager manager = (ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE);
             java.util.List<ActivityManager.RunningAppProcessInfo> processes = manager.getRunningAppProcesses();
             if (processes != null) for (ActivityManager.RunningAppProcessInfo process : processes)
-                if (process.processName.equals(activity.getPackageName() + ":game")) pid = process.pid;
+                if (process.processName.equals(context.getPackageName() + ":game")) pid = process.pid;
         } else pid = android.os.Process.myPid();
         if (record.isFile()) {
             JSONObject mode = new JSONObject(ServerFiles.readFile(record));
@@ -39,10 +40,16 @@ public final class LocalClient {
         config.put("ip_address", "127.0.0.1"); config.put("ip_management", "127.0.0.1");
         config.put("world", 1); config.put("server_port", 43594); config.put("wl_port", 43595); config.put("js5_port", 43595);
         File dest = new File(Tools.DIR_DATA, "singleplayer-client.json");
-        File pending = new File(Tools.DIR_DATA, "singleplayer-client.json.pending");
-        ServerFiles.write(pending, config.toString(2));
-        java.nio.file.Files.move(pending.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        return new Intent(activity, client).putExtra(EXTRA, true)
+        // Rotation or a later Play request can start a second preparation while a cancelled one finishes.
+        File pending = File.createTempFile("singleplayer-client-", ".tmp", dest.getParentFile());
+        try {
+            ServerFiles.write(pending, config.toString(2));
+            java.nio.file.Files.move(pending.toPath(), dest.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            pending.delete();
+        }
+        return new Intent(context, client).putExtra(EXTRA, true)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
     }
     private static File modeFile(Class<?> client) {

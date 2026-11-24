@@ -5,7 +5,7 @@
     <string name="singleplayer_hd">Play High Detail</string>
     <string name="singleplayer_sd">Play Standard Detail</string>
     <string name="singleplayer_stop">Save and stop</string>
-    <string name="singleplayer_logs">Export logs</string>
+    <string name="singleplayer_logs">Export client and server logs</string>
     <string name="singleplayer_backup">Back up world</string>
     <string name="singleplayer_restore">Restore world backup</string>
     <string name="singleplayer_memory">Server memory limit</string>
@@ -20,7 +20,7 @@
     <string name="singleplayer_tools_hide">World options ▴</string>
     <string name="singleplayer_diagnostics_show">Diagnostics ▾</string>
     <string name="singleplayer_diagnostics_hide">Diagnostics ▴</string>
-    <string name="singleplayer_diagnostics_hint">Logs include server memory and garbage collection measurements every 30 seconds. Export after a longer play session to check memory trends.</string>
+    <string name="singleplayer_diagnostics_hint">After a failed launch, export the client startup log, Android process exit history, and server logs here.</string>
     <string name="singleplayer_log_empty">Server logs will appear here.</string>
     <string name="singleplayer_online_hd">Play online in high detail</string>
     <string name="singleplayer_online_sd">Play online in standard detail</string>

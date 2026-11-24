@@ -20,9 +20,9 @@ public final class SingleplayerActivity extends BaseActivity {
     private static final int LOG_EXPORT = 51, BACKUP = 52, RESTORE = 53;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Messenger server;
-    private boolean bound, resumed, busy, ready, awaitingStartAck;
+    private boolean bound, resumed, busy, ready, awaitingStartAck, clientDispatched;
     private volatile boolean operation;
-    private String pendingClient = "";
+    private final PendingClientLaunch<Intent> pendingClient = new PendingClientLaunch<>();
     private TextView status, detail, log;
     private View diagnostics, worldTools;
     private boolean supported;
@@ -40,18 +40,18 @@ public final class SingleplayerActivity extends BaseActivity {
         String text = data.getString("log", "");
         if (!text.isEmpty() && diagnostics.getVisibility() == View.VISIBLE) setTextIfChanged(log, text);
         start.setEnabled(!busy && !operation); memory.setEnabled(!busy && !operation);
-        hd.setEnabled(!operation && !state.equals("Stopping")); sd.setEnabled(hd.isEnabled());
+        hd.setEnabled(!operation && !clientDispatched && !state.equals("Stopping")); sd.setEnabled(hd.isEnabled());
         stop.setEnabled(busy && !state.equals("Stopping"));
         backup.setEnabled(!busy && !operation); restore.setEnabled(!busy && !operation);
         force.setVisibility(state.equals("Stopping") ? View.VISIBLE : View.GONE);
-        if (!awaitingStartAck && (state.equals("Error") || (state.equals("Stopped") && !busy))) pendingClient = "";
-        if (ready && resumed && !pendingClient.isEmpty()) launchClient();
+        if (state.equals("Stopping") || (!awaitingStartAck && (state.equals("Error") || (state.equals("Stopped") && !busy)))) pendingClient.select("");
+        if (ready && resumed && !pendingClient.mode().isEmpty()) launchClient();
         return true;
     }));
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) { server = new Messenger(binder); poll(); }
         @Override public void onServiceDisconnected(ComponentName name) {
-            server = null; ready = false; busy = false; pendingClient = "";
+            server = null; ready = false; busy = false; pendingClient.select("");
             status.setText("Server supervisor disconnected. Open the logs before restarting.");
         }
     };
@@ -61,7 +61,7 @@ public final class SingleplayerActivity extends BaseActivity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        if (state != null) pendingClient = state.getString("pendingClient", "");
+        if (state != null) pendingClient.select(state.getString("pendingClient", ""));
         setContentView(R.layout.activity_singleplayer);
         findViewById(R.id.server_back).setOnClickListener(v -> finish());
         status = findViewById(R.id.server_state); detail = findViewById(R.id.server_detail);
@@ -91,13 +91,13 @@ public final class SingleplayerActivity extends BaseActivity {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 54);
         start.setOnClickListener(v -> startServer(""));
         hd.setOnClickListener(v -> startServer("hd")); sd.setOnClickListener(v -> startServer("sd"));
-        stop.setOnClickListener(v -> { pendingClient = ""; command(LocalServerService.STOP); });
+        stop.setOnClickListener(v -> { pendingClient.select(""); command(LocalServerService.STOP); });
         memory.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
             new String[]{"512 MiB", "1024 MiB", "1536 MiB", "2048 MiB", "3072 MiB", "4096 MiB"}));
         int selected = getPreferences(MODE_PRIVATE).getInt("heap", 2048);
         for (int i = 0; i < heaps.length; i++) if (heaps[i] == selected) memory.setSelection(i);
         findViewById(R.id.server_export).setEnabled(true);
-        findViewById(R.id.server_export).setOnClickListener(v -> createDocument(LOG_EXPORT, "application/zip", "2009scape-server-logs.zip"));
+        findViewById(R.id.server_export).setOnClickListener(v -> createDocument(LOG_EXPORT, "application/zip", "2009scape-diagnostics.zip"));
         backup.setOnClickListener(v -> createDocument(BACKUP, "application/zip", "2009scape-world-backup.zip"));
         restore.setOnClickListener(v -> new AlertDialog.Builder(this)
             .setTitle("Restore a world backup?").setMessage("The selected backup becomes the active world. A copy of the current world will be retained on this device.")
@@ -145,8 +145,9 @@ public final class SingleplayerActivity extends BaseActivity {
     private void command(String action) { startService(new Intent(this, LocalServerService.class).setAction(action)); }
 
     private void startServer(String client) {
-        if (operation) return;
-        pendingClient = client;
+        if (operation || clientDispatched) return;
+        if (!client.isEmpty()) ClientDiagnostics.request(this, client);
+        pendingClient.select(client);
         if (ready) { if (!client.isEmpty()) launchClient(); return; }
         if (busy) { status.setText("The client will open when the server is ready."); return; }
         int heap = heaps[memory.getSelectedItemPosition()]; getPreferences(MODE_PRIVATE).edit().putInt("heap", heap).apply();
@@ -162,25 +163,40 @@ public final class SingleplayerActivity extends BaseActivity {
                 return; // The next server status update resumes this Play request.
             }
         } catch (IOException e) {
-            pendingClient = "";
+            ClientDiagnostics.handoffFailure(this, pendingClient.mode(), e);
+            pendingClient.select("");
             error(e);
             return;
         }
-        String client = pendingClient; pendingClient = "";
+        Context app = getApplicationContext();
+        Class<?> client = pendingClient.mode().equals("sd") ? JavaGUILauncherActivity.class : MainActivity.class;
         try {
-            MultiRTUtils.requireClientRuntime();
-            startActivity(LocalClient.intent(this, client.equals("sd") ? JavaGUILauncherActivity.class : MainActivity.class));
-        } catch (Exception e) { error(e); }
+            Intent intent = pendingClient.poll(PojavApplication.sExecutorService, () -> {
+                MultiRTUtils.requireClientRuntime();
+                return LocalClient.intent(app, client);
+            });
+            if (intent == null) {
+                setTextIfChanged(detail, "Preparing local client connection…");
+                return;
+            }
+            startActivity(intent);
+            clientDispatched = true;
+            hd.setEnabled(false);
+            sd.setEnabled(false);
+        } catch (Exception e) {
+            ClientDiagnostics.handoffFailure(this, client == MainActivity.class ? "hd" : "sd", e);
+            error(e);
+        }
     }
-    @Override protected void onResume() { super.onResume(); resumed = true; if (supported) handler.post(refresh); }
-    @Override protected void onPause() { resumed = false; handler.removeCallbacks(refresh); super.onPause(); }
+    @Override protected void onResume() { super.onResume(); resumed = true; clientDispatched = false; if (supported) handler.post(refresh); }
+    @Override protected void onPause() { resumed = false; ready = false; handler.removeCallbacks(refresh); super.onPause(); }
     @Override protected void onSaveInstanceState(Bundle state) {
-        state.putString("pendingClient", pendingClient); state.putBoolean("awaitingStartAck", awaitingStartAck);
+        state.putString("pendingClient", pendingClient.mode()); state.putBoolean("awaitingStartAck", awaitingStartAck);
         state.putBoolean("tools", worldTools.getVisibility() == View.VISIBLE);
         state.putBoolean("diagnostics", diagnostics.getVisibility() == View.VISIBLE);
         super.onSaveInstanceState(state);
     }
-    @Override protected void onDestroy() { handler.removeCallbacksAndMessages(null); if (bound) unbindService(connection); server = null; super.onDestroy(); }
+    @Override protected void onDestroy() { pendingClient.select(""); handler.removeCallbacksAndMessages(null); if (bound) unbindService(connection); server = null; super.onDestroy(); }
 
     private void createDocument(int code, String type, String name) {
         startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType(type).addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE, name), code);
@@ -188,7 +204,7 @@ public final class SingleplayerActivity extends BaseActivity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (result != RESULT_OK || data == null || data.getData() == null || (request != LOG_EXPORT && request != BACKUP && request != RESTORE)) return;
-        Uri uri = data.getData(); operation = true; pendingClient = "";
+        Uri uri = data.getData(); operation = true; pendingClient.select("");
         Context app = getApplicationContext();
         WeakReference<SingleplayerActivity> screen = new WeakReference<>(this);
         Handler ui = handler;
@@ -203,7 +219,7 @@ public final class SingleplayerActivity extends BaseActivity {
                 } else try (OutputStream output = app.getContentResolver().openOutputStream(uri, "wt")) {
                     if (output == null) throw new IOException("Could not open destination");
                     if (request == BACKUP) WorldBackup.exportWorld(files, output);
-                    else exportLogs(files, output);
+                    else exportLogs(app, files, output);
                 }
                 ui.post(() -> Toast.makeText(app, request == RESTORE ? "World restored" : "Export complete", Toast.LENGTH_LONG).show());
             } catch (Exception e) {
@@ -219,8 +235,9 @@ public final class SingleplayerActivity extends BaseActivity {
             }
         }, "singleplayer-file-operation").start();
     }
-    private static void exportLogs(ServerFiles files, OutputStream output) throws Exception {
+    private static void exportLogs(Context app, ServerFiles files, OutputStream output) throws Exception {
         try (ZipOutputStream zip = new ZipOutputStream(output)) {
+            ClientDiagnostics.export(app, zip);
             zip.putNextEntry(new ZipEntry("package.json")); zip.write(files.manifest.toString(2).getBytes("UTF-8")); zip.closeEntry();
             File[] entries = files.root.listFiles();
             if (entries != null) for (File file : entries) if (file.isFile() && (file.getName().endsWith(".log") || file.getName().equals("last-session.txt"))) {

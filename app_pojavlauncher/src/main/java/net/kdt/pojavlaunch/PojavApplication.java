@@ -36,6 +36,7 @@ public class PojavApplication extends Application {
 				if(crashHome != null && !crashHome.exists() && !crashHome.mkdirs()) {
 					throw new IOException("Failed to create crash log home");
 				}
+				ClientDiagnostics.rotate(crashFile);
 				PrintStream crashStream = new PrintStream(crashFile);
 				crashStream.append("PojavLauncher crash report\n");
 				crashStream.append(" - Time: ").append(DateFormat.getDateTimeInstance().format(new Date())).append("\n");

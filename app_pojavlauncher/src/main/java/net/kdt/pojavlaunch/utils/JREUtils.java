@@ -24,6 +24,7 @@ import net.kdt.pojavlaunch.extra.ExtraCore;
 import net.kdt.pojavlaunch.multirt.MultiRTUtils;
 import net.kdt.pojavlaunch.multirt.Runtime;
 import net.kdt.pojavlaunch.prefs.*;
+import net.kdt.pojavlaunch.server.LocalClient;
 import org.lwjgl.glfw.*;
 
 import javax.microedition.khronos.egl.EGL10;
@@ -73,16 +74,13 @@ public class JREUtils {
     }
 
     public static void initJavaRuntime(String jreHome) {
-        dlopen(findInLdLibPath("libjli.so"));
-        if(!dlopen("libjvm.so")){
-            Log.w("DynamicLoader","Failed to load with no path, trying with full path");
-            dlopen(jvmLibraryPath+"/libjvm.so");
+        File libraries = new File(jreHome, Tools.DIRNAME_HOME_JRE);
+        // Load in DT_NEEDED order so these names resolve even if Android's private
+        // linker-path API is unavailable. These must come from the selected runtime.
+        requireRuntimeLibrary(new File(jvmLibraryPath, "libjvm.so").getAbsolutePath());
+        for (String name : new String[]{"libverify.so", "libjava.so", "libzip.so", "libnet.so", "libnio.so"}) {
+            requireRuntimeLibrary(new File(libraries, name).getAbsolutePath());
         }
-        dlopen(findInLdLibPath("libverify.so"));
-        dlopen(findInLdLibPath("libjava.so"));
-        // dlopen(findInLdLibPath("libjsig.so"));
-        dlopen(findInLdLibPath("libnet.so"));
-        dlopen(findInLdLibPath("libnio.so"));
         dlopen(findInLdLibPath("libawt.so"));
         dlopen(findInLdLibPath("libawt_headless.so"));
         dlopen(findInLdLibPath("libfreetype.so"));
@@ -91,41 +89,6 @@ public class JREUtils {
             dlopen(f.getAbsolutePath());
         }
         dlopen(NATIVE_LIB_DIR + "/libopenal.so");
-    }
-
-    public static void redirectAndPrintJRELog() {
-
-        Log.v("jrelog","Log starts here");
-        new Thread(new Runnable(){
-            int failTime = 0;
-            ProcessBuilder logcatPb;
-            @Override
-            public void run() {
-                try {
-                    if (logcatPb == null) {
-                        logcatPb = new ProcessBuilder().command("logcat", /* "-G", "1mb", */ "-v", "brief", "-s", "jrelog:I", "LIBGL:I", "NativeInput").redirectErrorStream(true);
-                    }
-
-                    Log.i("jrelog-logcat","Clearing logcat");
-                    new ProcessBuilder().command("logcat", "-c").redirectErrorStream(true).start();
-                    Log.i("jrelog-logcat","Starting logcat");
-                    java.lang.Process p = logcatPb.start();
-
-                    byte[] buf = new byte[1024];
-                    int len;
-                    while ((len = p.getInputStream().read(buf)) != -1) {
-                        String currStr = new String(buf, 0, len);
-                        Logger.appendToLog(currStr);
-                        Log.e("jrelog-logcat",currStr);
-                    }
-                } catch (Throwable e) {
-                    Log.e("jrelog-logcat", "Exception on logging thread", e);
-                    Logger.appendToLog("Exception on logging thread:\n" + Log.getStackTraceString(e));
-                }
-            }
-        }).start();
-        Log.i("jrelog-logcat","Logcat thread started");
-
     }
 
     public static void relocateLibPath(Runtime runtime, String jreHome) {
@@ -144,7 +107,7 @@ public class JREUtils {
         LD_LIBRARY_PATH = ldLibraryPath.toString();
     }
 
-    public static void setJavaEnvironment(Activity activity, String jreHome) throws Throwable {
+    private static void setJavaEnvironment(String jreHome, boolean local) throws Throwable {
         Map<String, String> envMap = new ArrayMap<>();
         envMap.put("POJAV_NATIVEDIR", NATIVE_LIB_DIR);
         envMap.put("JAVA_HOME", jreHome);
@@ -186,6 +149,10 @@ public class JREUtils {
         envMap.put("REGAL_GL_VERSION", "4.5");
         if(LOCAL_RENDERER != null) {
             envMap.put("POJAV_RENDERER", LOCAL_RENDERER);
+            // RT4 mixes element buffers with client-memory indices. GL4ES 1.1.4 can leave
+            // the previous element buffer bound and pass the next CPU address as an offset.
+            if (local && ("opengles2".equals(LOCAL_RENDERER) || "opengles2_5".equals(LOCAL_RENDERER)
+                    || "opengles3".equals(LOCAL_RENDERER))) envMap.put("LIBGL_USEVBO", "0");
             if(LOCAL_RENDERER.equals("opengles3_desktopgl_angle_vulkan")) {
                 envMap.put("LIBGL_ES", "3");
                 envMap.put("POJAVEXEC_EGL","libEGL_angle.so"); // Use ANGLE EGL
@@ -234,7 +201,9 @@ public class JREUtils {
         jvmLibraryPath = jreHome + "/" + Tools.DIRNAME_HOME_JRE + "/" + (serverFile.exists() ? "server" : "client");
         Log.d("DynamicLoader","Base LD_LIBRARY_PATH: "+LD_LIBRARY_PATH);
         Log.d("DynamicLoader","Internal LD_LIBRARY_PATH: "+jvmLibraryPath+":"+LD_LIBRARY_PATH);
-        setLdLibraryPath(jvmLibraryPath+":"+LD_LIBRARY_PATH);
+        if (!setLdLibraryPath(jvmLibraryPath + ":" + LD_LIBRARY_PATH)) {
+            Logger.appendToLog("Android linker path update unavailable; using absolute runtime library paths");
+        }
 
         // return ldLibraryPath;
     }
@@ -245,8 +214,11 @@ public class JREUtils {
 
         JREUtils.relocateLibPath(runtime, runtimeHome);
 
-        setJavaEnvironment(activity, runtimeHome);
+        boolean local = activity.getIntent().getBooleanExtra(LocalClient.EXTRA, false);
+        setJavaEnvironment(runtimeHome, local);
 
+        ClientDiagnostics.phase(activity, "loading " + (LOCAL_RENDERER == null ? "AWT software renderer" : LOCAL_RENDERER)
+                + " with Java " + runtime.versionString);
         final String graphicsLib = loadGraphicsLibrary();
         List<String> userArgs = getJavaArgs(activity, runtimeHome, userArgsString);
 
@@ -259,20 +231,33 @@ public class JREUtils {
         purgeArg(userArgs, "-Dorg.lwjgl.opengl.libname");
 
         //Add automatically generated args
-        userArgs.add("-Xms" + LauncherPreferences.PREF_RAM_ALLOCATION + "M");
-        userArgs.add("-Xmx" + LauncherPreferences.PREF_RAM_ALLOCATION + "M");
+        int maximumHeapMiB = LauncherPreferences.PREF_RAM_ALLOCATION;
+        // The local server already owns a separate JVM. Let the client grow as it loads the world.
+        int initialHeapMiB = local ? Math.min(256, maximumHeapMiB) : maximumHeapMiB;
+        userArgs.add("-Xms" + initialHeapMiB + "M");
+        userArgs.add("-Xmx" + maximumHeapMiB + "M");
         if(LOCAL_RENDERER != null) userArgs.add("-Dorg.lwjgl.opengl.libname=" + graphicsLib);
 
+        boolean customErrorFile = false;
+        for (String arg : userArgs) if (arg.startsWith("-XX:ErrorFile=")) customErrorFile = true;
+        if (!customErrorFile) userArgs.add("-XX:ErrorFile=" + ClientDiagnostics.errorFile(activity));
         userArgs.addAll(JVMArgs);
         activity.runOnUiThread(() -> Toast.makeText(activity, activity.getString(R.string.autoram_info_msg,LauncherPreferences.PREF_RAM_ALLOCATION), Toast.LENGTH_SHORT).show());
         System.out.println(JVMArgs);
 
+        ClientDiagnostics.phase(activity, "loading JVM libraries");
         initJavaRuntime(runtimeHome);
-        setupExitTrap(activity.getApplication());
+        // The local diagnostics screen can report process exits directly. Avoid xhook's
+        // process-wide SIGSEGV handler while ART and HotSpot are both running.
+        if (!local) setupExitTrap(activity.getApplication());
         chdir(gameDirectory == null ? Tools.DIR_GAME_NEW : gameDirectory.getAbsolutePath());
         userArgs.add(0,"java"); //argv[0] is the program name according to C standard.
 
-        final int exitCode = VMLauncher.launchJVM(userArgs.toArray(new String[0]));
+        ClientDiagnostics.phase(activity, "entering client JVM, heap " + initialHeapMiB + ".." + maximumHeapMiB + " MiB");
+        File runtimeLib = new File(runtimeHome, Tools.DIRNAME_HOME_JRE);
+        final int exitCode = VMLauncher.launchJVM(new File(runtimeLib, "jli/libjli.so").getAbsolutePath(),
+                userArgs.toArray(new String[0]));
+        ClientDiagnostics.phase(activity, "client JVM returned " + exitCode);
         Logger.appendToLog("Java Exit code: " + exitCode);
         if (exitCode != 0) {
             activity.runOnUiThread(() -> {
@@ -421,7 +406,7 @@ public class JREUtils {
             Log.e("RENDER_LIBRARY","Failed to load renderer " + renderLibrary + ". Falling back to GL4ES 1.1.4");
             LOCAL_RENDERER = "opengles2";
             renderLibrary = "libgl4es_114.so";
-            dlopen(NATIVE_LIB_DIR + "/libgl4es_114.so");
+            requireRuntimeLibrary(NATIVE_LIB_DIR + "/" + renderLibrary);
         }
         return renderLibrary;
     }
@@ -515,13 +500,15 @@ public class JREUtils {
     }
     public static native int chdir(String path);
     public static native boolean dlopen(String libPath);
-    public static native void setLdLibraryPath(String ldLibraryPath);
+    public static native boolean setLdLibraryPath(String ldLibraryPath);
+    private static native void requireRuntimeLibrary(String absolutePath);
     public static native void setupBridgeWindow(Object surface);
     public static native void releaseBridgeWindow();
     public static native boolean setAudioSuspended(boolean suspended);
     public static native void setupExitTrap(Context context);
     // Obtain AWT screen pixels to render on Android SurfaceView
-    public static native int[] renderAWTScreenFrame(/* Object canvas, int width, int height */);
+    public static native boolean renderAWTScreenFrame(int[] pixels);
+    public static native void releaseAWTFrameReader();
     static {
         System.loadLibrary("pojavexec");
         System.loadLibrary("pojavexec_awt");

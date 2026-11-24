@@ -3,8 +3,11 @@
 import hashlib
 import io
 import json
+import os
+import subprocess
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import zipfile
 
 from client_runtime import ASSET_PATH, SHA256 as CLIENT_JRE_SHA256
@@ -47,8 +50,21 @@ def verify_client_assets(apk):
     assert marker == expected_marker, 'LWJGL component version does not match its JAR'
 
 
+def verify_software_view_distance(apk):
+    test = Path(__file__).with_name('SoftwareViewDistanceTest.java').resolve()
+    with TemporaryDirectory() as directory:
+        work = Path(directory)
+        for name, entry in [('rt4.jar', 'assets/rt4.jar'), ('ViewDistance.zip', 'assets/plugins/ViewDistance.zip')]:
+            (work / name).write_bytes(apk.read(entry))
+        classpath = os.pathsep.join(['rt4.jar', 'ViewDistance.zip'])
+        subprocess.run(['java', '-Djava.awt.headless=true', '-DpluginDir=.',
+                        '-Dorg.lwjgl.libname=' + str(work / 'no-gl-context'),
+                        '-cp', classpath, str(test)], cwd=work, check=True, timeout=30)
+
+
 with zipfile.ZipFile(sys.argv[1]) as apk:
     verify_client_assets(apk)
+    verify_software_view_distance(apk)
     manifest = json.loads(apk.read('assets/singleplayer/manifest.json'))
     for name, digest in manifest['archives'].items():
         assert hashlib.sha256(apk.read('assets/singleplayer/' + name)).hexdigest() == digest, name
