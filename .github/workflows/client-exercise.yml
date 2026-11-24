@@ -1,0 +1,52 @@
+name: Android 15 client exercise
+on:
+  push:
+    branches: ['ci/odin-client-android15']
+permissions:
+  contents: read
+jobs:
+  client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [hd, sd]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /.github/client-exercise/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch test APK
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 -o client.apk "$(cat .github/client-exercise/apk-url)"
+          echo "$(cat .github/client-exercise/apk-sha256)  client.apk" | sha256sum --check
+      - name: Start Android API 35 emulator
+        run: |
+          set -euo pipefail
+          sudo chmod a+rw /dev/kvm
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'system-images;android-35;google_apis;x86_64' 'emulator'
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd --name client --package 'system-images;android-35;google_apis;x86_64' --force
+          mkdir -p validation
+          "$ANDROID_HOME/emulator/emulator" -avd client -no-window -no-snapshot -no-audio -no-boot-anim -gpu swiftshader_indirect -cores 2 -memory 4096 -partition-size 5000 >validation/emulator.txt 2>&1 </dev/null &
+          timeout 300 adb wait-for-device
+          timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -q 1; do sleep 2; done'
+          adb root
+          adb wait-for-device
+          adb shell input keyevent 82
+          adb shell wm size 1280x720
+          adb shell wm density 220
+      - name: Start and inspect the offline client
+        run: python3 .github/client-exercise/smoke.py "${{ matrix.mode }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-${{ matrix.mode }}
+          path: validation/
+          retention-days: 5
