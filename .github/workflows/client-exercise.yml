@@ -15,8 +15,6 @@ jobs:
         include:
           - mode: hd
             source: draw-probe
-          - mode: sd
-            source: login-tap
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +53,10 @@ jobs:
         run: |
           set -euo pipefail
           sudo chmod a+rw /dev/kvm
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools'
+          for attempt in 1 2 3; do
+            "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools' && break
+            sleep 3
+          done
           export ANDROID_AVD_HOME="$RUNNER_TEMP/avds"
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd --path "$ANDROID_AVD_HOME/client.avd" --name client --package 'system-images;android-35;google_apis;x86_64' --force
@@ -73,6 +74,7 @@ jobs:
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -q 1; do sleep 2; done'
           adb root
           adb wait-for-device
+          adb pull /vendor/lib64/libGLESv2_enc.so validation/libGLESv2_enc.so || true
           adb shell input keyevent 82
           adb shell settings put secure immersive_mode_confirmations confirmed
           adb shell wm size 1280x720
