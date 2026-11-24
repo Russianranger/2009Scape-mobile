@@ -22,11 +22,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Fetch test APK
+      - name: Read candidate commit
+        id: source
+        run: echo "ref=$(cat .github/client-exercise/source-sha)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          path: candidate
+          ref: ${{ steps.source.outputs.ref }}
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build candidate
+        working-directory: candidate
         run: |
-          set -euo pipefail
-          curl --fail --location --retry 3 -o client.apk "$(cat .github/client-exercise/apk-url)"
-          echo "$(cat .github/client-exercise/apk-sha256)  client.apk" | sha256sum --check
+          ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
+          cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk ../client.apk
       - name: Start Android API 35 emulator
         run: |
           set -euo pipefail
@@ -47,6 +58,19 @@ jobs:
           adb shell wm density 220
       - name: Start and inspect the offline client
         run: python3 .github/client-exercise/smoke.py "${{ matrix.mode }}"
+      - name: Preserve process evidence if launch returned early
+        if: always()
+        run: |
+          mkdir -p validation
+          if timeout 8 adb get-state >/dev/null; then
+            adb shell getprop ro.product.cpu.abilist >validation/abis.txt
+            adb shell getprop ro.dalvik.vm.native.bridge >validation/bridge.txt
+            if [ ! -s validation/logcat.txt ]; then adb logcat -d -t 6000 >validation/logcat.txt; fi
+            if [ ! -s validation/exit-info.txt ]; then adb shell dumpsys activity exit-info net.kdt.pojavlaunch.debug >validation/exit-info.txt; fi
+            adb exec-out screencap -p >validation/final.png
+            adb shell run-as net.kdt.pojavlaunch.debug sh -c '"cat files/client-diagnostics/*.log"' >validation/startup.txt || true
+            rg -i 'signal 11|fatal signal|fatal exception|client JVM|cannot load|exception in thread|ANR in' validation/logcat.txt | tail -20 || true
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
