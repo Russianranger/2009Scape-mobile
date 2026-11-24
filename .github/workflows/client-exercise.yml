@@ -12,7 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         mode: [hd, sd]
-        source: [preview3, candidate]
+        source: [candidate]
+        include:
+          - mode: hd
+            source: arm64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,20 +35,21 @@ jobs:
         id: source
         run: echo "ref=$(cat .github/client-exercise/source-sha)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        if: matrix.source == 'candidate'
+        if: matrix.source != 'preview3'
         with:
           path: candidate
           ref: ${{ steps.source.outputs.ref }}
       - uses: android-actions/setup-android@v3
-        if: matrix.source == 'candidate'
+        if: matrix.source != 'preview3'
         with:
           packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
       - uses: gradle/actions/setup-gradle@v4
-        if: matrix.source == 'candidate'
+        if: matrix.source != 'preview3'
       - name: Build candidate
-        if: matrix.source == 'candidate'
+        if: matrix.source != 'preview3'
         working-directory: candidate
         run: |
+          sed -i '/^    repositories {$/a\        maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }' settings.gradle
           ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
           cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk ../client.apk
       - name: Start Android API 35 emulator
@@ -71,10 +75,11 @@ jobs:
           adb root
           adb wait-for-device
           adb shell input keyevent 82
+          adb shell settings put secure immersive_mode_confirmations confirmed
           adb shell wm size 1280x720
           adb shell wm density 220
       - name: Start and inspect the offline client
-        run: python3 .github/client-exercise/smoke.py "${{ matrix.mode }}"
+        run: python3 .github/client-exercise/smoke.py "${{ matrix.mode }}" "${{ matrix.source }}"
       - name: Preserve process evidence if launch returned early
         if: always()
         run: |

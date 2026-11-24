@@ -15,11 +15,12 @@ root.mkdir()
 out.mkdir(exist_ok=True)
 pkg = 'net.kdt.pojavlaunch.debug'
 mode = sys.argv[1]
+arm64 = sys.argv[2:] == ['arm64']
 activity = 'MainActivity' if mode == 'hd' else 'JavaGUILauncherActivity'
 
 
 def adb(*args, **opts):
-    return subprocess.run(['adb', *args], timeout=150, check=True, **opts)
+    return subprocess.run(['adb', *args], timeout=150, check=opts.pop('check', True), **opts)
 
 
 def save(path, *args, limit=None):
@@ -30,7 +31,7 @@ def save(path, *args, limit=None):
 
 
 def installed():
-    return adb('shell', 'run-as', pkg, 'test', '-s', 'runtimes/Internal/lib/amd64/server/libjvm.so', stdout=subprocess.DEVNULL).returncode == 0
+    return adb('shell', f'run-as {pkg} ls runtimes/Internal/lib', stdout=subprocess.PIPE).stdout.strip() and adb('shell', f'run-as {pkg} find runtimes/Internal/lib -name libjvm.so', stdout=subprocess.PIPE).stdout.strip()
 
 
 with ZipFile('client.apk') as apk:
@@ -52,7 +53,8 @@ with ExitStack() as resources:
     resources.callback(server.terminate)
     save('abis.txt', 'shell', 'getprop', 'ro.product.cpu.abilist')
     save('bridge.txt', 'shell', 'getprop', 'ro.dalvik.vm.native.bridge')
-    adb('install', '-r', '-g', 'client.apk')
+    adb('install', '-r', '-g', *(['--abi', 'arm64-v8a'] if arm64 else []), 'client.apk')
+    adb('shell', 'settings', 'put', 'secure', 'immersive_mode_confirmations', 'confirmed')
     adb('reverse', 'tcp:43595', 'tcp:43595')
     adb('shell', 'svc', 'wifi', 'disable')
     adb('shell', 'svc', 'data', 'disable')
@@ -70,7 +72,12 @@ with ExitStack() as resources:
         raise RuntimeError('No complete Java 8 and local world found')
     for filename in ('config.json', 'singleplayer-client.json'):
         adb('shell', f"run-as {pkg} sh -c 'cat > {filename}'", input=json.dumps(cfg).encode())
+    proc = subprocess.Popen(['sudo','tcpdump','-ni','lo','-l','tcp port 43595'], stdout=resources.enter_context((out/'connections.txt').open('w')), stderr=subprocess.DEVNULL)
+    resources.callback(proc.terminate)
     adb('shell', 'am', 'start', '-W', '-n', f'{pkg}/net.kdt.pojavlaunch.{activity}', '--ez', 'scape.singleplayer', 'true')
+    def cache_files(stage):
+        save('cache-'+stage+'.txt','shell',f'find /data/user/0/{pkg} -type f | grep -Ei "main_file|runescape|jagex|\.idx|\.dat[0-9]*$" | head -120 | xargs -r ls -l',limit=30000)
+    cache_files('start')
     start = time.monotonic()
     seen_login = False
     for tick in [7, 24, 50, 85, 135]:
@@ -84,9 +91,19 @@ with ExitStack() as resources:
             if re.search(r'existing user|new user|create (an? )?account|returning player|existing account|username|password', text, re.I):
                 seen_login = True
                 break
+    cache_files('end')
     save('activities.txt','shell','dumpsys','activity','activities',limit=180000)
     save('exit-info.txt','shell','dumpsys','activity','exit-info',pkg,limit=120000)
-    save('client.txt','shell',f'run-as {pkg} cat /sdcard/Android/data/{pkg}/files/latestlog.txt',limit=600000)
+    save('client.txt','shell',f'cat /data/media/0/Android/data/{pkg}/files/latestlog.txt || cat /sdcard/Android/data/{pkg}/files/latestlog.txt',limit=600000)
+    save('client-files.txt','shell',f'find /data/media/0/Android/data/{pkg} /sdcard/Android/data/{pkg} /data/user/0/{pkg} -name "latest*"')
+    save('sockets.txt','shell','ss','-ntp')
+    pids=adb('shell', 'pidof', pkg+(':game' if mode=='hd' else ':launcher'),stdout=subprocess.PIPE,check=False).stdout.strip().decode()
+    for pid in pids.split():
+        if pid.isdecimal():
+            save('backtrace-'+pid+'.txt','shell',f'timeout 10 debuggerd -b {pid}',limit=400000)
+            adb('shell', f'kill -3 {pid}')
+    time.sleep(3)
+    save('client-after.txt','shell',f'cat /data/media/0/Android/data/{pkg}/files/latestlog.txt || cat /sdcard/Android/data/{pkg}/files/latestlog.txt',limit=700000)
     save('logcat.txt','logcat','-d','-v','threadtime',limit=3500000)
     adb('shell','getprop','ro.product.cpu.abilist')
     print('Login recognized by OCR:',seen_login,flush=True)
