@@ -50,6 +50,8 @@ with ExitStack() as resources:
                                'scape.ServerMain', 'worldprops/default.conf'], cwd=root / 'world',
                               stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT)
     resources.callback(server.terminate)
+    save('abis.txt', 'shell', 'getprop', 'ro.product.cpu.abilist')
+    save('bridge.txt', 'shell', 'getprop', 'ro.dalvik.vm.native.bridge')
     adb('install', '-r', '-g', 'client.apk')
     adb('reverse', 'tcp:43595', 'tcp:43595')
     adb('shell', 'svc', 'wifi', 'disable')
