@@ -72,8 +72,11 @@ with ExitStack() as resources:
         raise RuntimeError('No complete Java 8 and local world found')
     for filename in ('config.json', 'singleplayer-client.json'):
         adb('shell', f"run-as {pkg} sh -c 'cat > {filename}'", input=json.dumps(cfg).encode())
+    if sys.argv[2:] == ['vbo-off']:
+        adb('shell', f'echo LIBGL_USEVBO=0 > /sdcard/Android/data/{pkg}/files/custom_env.txt')
+        adb('shell', f'cat /sdcard/Android/data/{pkg}/files/custom_env.txt')
     proc = subprocess.Popen(['sudo','tcpdump','-ni','lo','-l','tcp port 43595'], stdout=resources.enter_context((out/'connections.txt').open('w')), stderr=subprocess.DEVNULL)
-    resources.callback(proc.terminate)
+    resources.callback(subprocess.run, ['sudo', 'kill', '-TERM', str(proc.pid)], check=False)
     adb('shell', 'am', 'start', '-W', '-n', f'{pkg}/net.kdt.pojavlaunch.{activity}', '--ez', 'scape.singleplayer', 'true')
     def cache_files(stage):
         save('cache-'+stage+'.txt','shell',f'find /data/user/0/{pkg} -type f | grep -Ei "main_file|runescape|jagex|\.idx|\.dat[0-9]*$" | head -120 | xargs -r ls -l',limit=30000)

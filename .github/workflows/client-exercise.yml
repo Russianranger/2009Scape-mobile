@@ -5,17 +5,9 @@ on:
 permissions:
   contents: read
 jobs:
-  client:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 24
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [hd, sd]
-        source: [candidate]
-        include:
-          - mode: hd
-            source: arm64
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,32 +18,56 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Download released Preview 3
-        if: matrix.source == 'preview3'
-        run: |
-          curl --fail --location --retry 3 -o client.apk "$(cat .github/client-exercise/apk-url)"
-          echo "$(cat .github/client-exercise/apk-sha256)  client.apk" | sha256sum --check
       - name: Read candidate commit
         id: source
         run: echo "ref=$(cat .github/client-exercise/source-sha)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        if: matrix.source != 'preview3'
         with:
           path: candidate
           ref: ${{ steps.source.outputs.ref }}
       - uses: android-actions/setup-android@v3
-        if: matrix.source != 'preview3'
         with:
           packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
       - uses: gradle/actions/setup-gradle@v4
-        if: matrix.source != 'preview3'
       - name: Build candidate
-        if: matrix.source != 'preview3'
         working-directory: candidate
         run: |
           sed -i '/^    repositories {$/a\        maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }' settings.gradle
-          ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
+          ./gradlew :app_pojavlauncher:assembleDebug --no-daemon || ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
           cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk ../client.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tested-candidate-apk
+          path: client.apk
+          retention-days: 3
+
+  client:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 24
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [hd, sd]
+        source: [candidate]
+        include:
+          - mode: hd
+            source: arm64
+          - mode: hd
+            source: vbo-off
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /.github/client-exercise/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-candidate-apk
       - name: Start Android API 35 emulator
         run: |
           set -euo pipefail
