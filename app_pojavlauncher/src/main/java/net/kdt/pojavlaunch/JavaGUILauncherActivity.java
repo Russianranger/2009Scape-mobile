@@ -201,8 +201,7 @@ public class JavaGUILauncherActivity extends BaseActivity implements View.OnTouc
 
             placeMouseAt(CallbackBridge.physicalWidth / 2f, CallbackBridge.physicalHeight / 2f);
 
-            String jreName = LauncherPreferences.PREF_DEFAULT_RUNTIME;
-            final Runtime runtime = MultiRTUtils.forceReread(jreName);
+            final Runtime runtime = MultiRTUtils.requireClientRuntime();
 
             mSkipDetectMod = false;
             if (mSkipDetectMod) {
@@ -387,7 +386,6 @@ public class JavaGUILauncherActivity extends BaseActivity implements View.OnTouc
     }
 
     public int launchJavaRuntime(Runtime runtime, String javaArgs) {
-        runtime = MultiRTUtils.forceReread("Internal");
         JREUtils.redirectAndPrintJRELog();
         try {
             List<String> javaArgList = new ArrayList<>();

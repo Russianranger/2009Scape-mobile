@@ -1,6 +1,5 @@
 package net.kdt.pojavlaunch.utils;
 
-import static net.kdt.pojavlaunch.utils.Architecture.ARCH_X86;
 import static net.kdt.pojavlaunch.utils.Architecture.is64BitsDevice;
 import static net.kdt.pojavlaunch.Tools.LOCAL_RENDERER;
 import static net.kdt.pojavlaunch.Tools.NATIVE_LIB_DIR;
@@ -130,17 +129,7 @@ public class JREUtils {
     }
 
     public static void relocateLibPath(Runtime runtime, String jreHome) {
-        String JRE_ARCHITECTURE = runtime.arch;
-        if (Architecture.archAsInt(JRE_ARCHITECTURE) == ARCH_X86){
-            JRE_ARCHITECTURE = "i386/i486/i586";
-        }
-
-        for (String arch : JRE_ARCHITECTURE.split("/")) {
-            File f = new File(jreHome, "lib/" + arch);
-            if (f.exists() && f.isDirectory()) {
-                Tools.DIRNAME_HOME_JRE = "lib/" + arch;
-            }
-        }
+        Tools.DIRNAME_HOME_JRE = runtime.librarySubdirectory(new File(jreHome));
 
         String libName = is64BitsDevice() ? "lib64" : "lib";
         StringBuilder ldLibraryPath = new StringBuilder();

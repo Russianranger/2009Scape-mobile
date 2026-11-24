@@ -42,76 +42,59 @@ public class AsyncAssetManager {
 
     private AsyncAssetManager(){}
 
-    /**
-     * Attempt to install the java 8 runtime, if necessary
-     * @param am App context
-     */
-    public static void unpackRuntime(AssetManager am) {
-        /* Check if JRE is included */
-        String rt_version = null;
-        String current_rt_version = MultiRTUtils.__internal__readBinpackVersion("Internal");
-        try {
-            rt_version = Tools.read(am.open("components/jre/version"));
-        } catch (IOException e) {
-            Log.e("JREAuto", "JRE was not included on this APK.", e);
+    private static void prepareClientRuntime(AssetManager assets) throws IOException {
+        if (MultiRTUtils.findClientRuntime() != null) return;
+        String directory = "components/jre/";
+        String platform = archAsString(Tools.DEVICE_ARCHITECTURE);
+        try (InputStream universal = assets.open(directory + "universal.tar.xz");
+             InputStream nativeBins = assets.open(directory + "bin-" + platform + ".tar.xz")) {
+            MultiRTUtils.installBundledJava8(universal, nativeBins);
+        } finally {
+            ProgressLayout.clearProgress(ProgressLayout.UNPACK_RUNTIME);
         }
-        String exactJREName = MultiRTUtils.getExactJreName(8);
-        if(current_rt_version == null && exactJREName != null && !exactJREName.equals("Internal")/*this clause is for when the internal runtime is goofed*/) return;
-        if(rt_version == null) return;
-        if(rt_version.equals(current_rt_version)) return;
-
-        // Install the runtime in an async manner, hope for the best
-        String finalRt_version = rt_version;
-        sExecutorService.execute(() -> {
-
-            try {
-                MultiRTUtils.installRuntimeNamedBinpack(
-                        am.open("components/jre/universal.tar.xz"),
-                        am.open("components/jre/bin-" + archAsString(Tools.DEVICE_ARCHITECTURE) + ".tar.xz"),
-                        "Internal", finalRt_version);
-                MultiRTUtils.postPrepare("Internal");
-            }catch (IOException e) {
-                Log.e("JREAuto", "Internal JRE unpack failed", e);
-            }
-        });
     }
 
-    /** Unpack single files, with no regard to version tracking */
-    public static void unpackSingleFiles(Context ctx){
-        ProgressLayout.setProgress(ProgressLayout.EXTRACT_SINGLE_FILES, 0);
-        sExecutorService.execute(() -> {
-            try {
-                Tools.copyAssetFile(ctx, "options.txt", Tools.DIR_GAME_NEW, false);
-                Tools.copyAssetFile(ctx, "default.json", Tools.CTRLMAP_PATH, false);
-                Tools.copyAssetFile(ctx, "launcher_profiles.json", Tools.DIR_GAME_NEW, false);
-            } catch (IOException e) {
-                Log.e("AsyncAssetManager", "Failed to unpack critical components !");
-            }
-            ProgressLayout.clearProgress(ProgressLayout.EXTRACT_SINGLE_FILES);
-        });
-    }
+    private static final ClientPreparation clientPreparation = new ClientPreparation();
 
-    public static void unpackComponents(Context ctx){
-        ProgressLayout.setProgress(ProgressLayout.EXTRACT_COMPONENTS, 0);
-        sExecutorService.execute(() -> {
+    public static void prepareClient(Context context) {
+        Context ctx = context.getApplicationContext();
+        clientPreparation.start(sExecutorService, () -> {
+            ProgressLayout.setProgress(ProgressLayout.EXTRACT_COMPONENTS, 0);
             try {
                 unpackComponent(ctx, "caciocavallo", false);
                 unpackComponent(ctx, "caciocavallo17", false);
-                // Since the Java module system doesn't allow multiple JARs to declare the same module,
-                // we repack them to a single file here
                 unpackComponent(ctx, "lwjgl3", false);
                 unpackComponent(ctx, "security", true);
                 unpackClient(ctx);
-                Tools.copyAssetFile(ctx,"config.json",Tools.DIR_DATA, false);
-
-                // Unzip the plugins for use.
+                installDefaultConfig(ctx);
+                Tools.copyAssetFile(ctx, "options.txt", Tools.DIR_GAME_NEW, false);
+                Tools.copyAssetFile(ctx, "default.json", Tools.CTRLMAP_PATH, false);
+                Tools.copyAssetFile(ctx, "launcher_profiles.json", Tools.DIR_GAME_NEW, false);
                 extractAllPlugins(ctx);
-
-            } catch (IOException e) {
-                Log.e("AsyncAssetManager", "Failed o unpack components !",e );
+                prepareClientRuntime(ctx.getAssets());
+                return null;
+            } finally {
+                ProgressLayout.clearProgress(ProgressLayout.EXTRACT_COMPONENTS);
             }
-            ProgressLayout.clearProgress(ProgressLayout.EXTRACT_COMPONENTS);
         });
+    }
+
+    public static boolean clientReady(Context ctx) throws IOException {
+        prepareClient(ctx);
+        return clientPreparation.ready();
+    }
+
+    private static void installDefaultConfig(Context ctx) throws IOException {
+        File config = new File(Tools.DIR_DATA, "config.json");
+        if (config.exists()) return; // Keep imported connection settings on upgrades.
+        File pending = File.createTempFile("config-", ".tmp", config.getParentFile());
+        try {
+            Tools.copyAssetFile(ctx, "config.json", Tools.DIR_DATA, pending.getName(), true);
+            if (!config.exists() && !pending.renameTo(config))
+                throw new IOException("Cannot install the default client configuration");
+        } finally {
+            pending.delete();
+        }
     }
 
     /**
@@ -133,8 +116,7 @@ public class AsyncAssetManager {
         File pluginsDirectory = new File(Tools.DIR_DATA + "/plugins/");
         File disabledPluginsDirectory = new File(Tools.DIR_DATA + "/disabledPlugins/");
         if (!disabledPluginsDirectory.exists() && !disabledPluginsDirectory.mkdirs()) {
-            Log.e("UnpackPrep", "plugins: Failed to create " + disabledPluginsDirectory.getPath());
-            return;
+            throw new IOException("Cannot create client plugin directory " + disabledPluginsDirectory);
         }
 
         String[] pluginFiles = ctx.getAssets().list(PLUGIN_PATH);
@@ -300,36 +282,29 @@ public class AsyncAssetManager {
         AssetManager am = ctx.getAssets();
         String rootDir = privateDirectory ? Tools.DIR_DATA : Tools.DIR_GAME_HOME;
 
-        File versionFile = new File(rootDir + "/" + component + "/version");
-        InputStream is = am.open("components/" + component + "/version");
-        if(!versionFile.exists()) {
-            if (versionFile.getParentFile().exists() && versionFile.getParentFile().isDirectory()) {
-                FileUtils.deleteDirectory(versionFile.getParentFile());
-            }
-            versionFile.getParentFile().mkdir();
+        String assetDir = "components/" + component;
+        File directory = new File(rootDir, component);
+        File versionFile = new File(directory, "version");
+        String version = Tools.read(am.open(assetDir + "/version"));
+        String[] entries = am.list(assetDir);
+        if (entries == null || entries.length < 2 || version.trim().isEmpty())
+            throw new IOException("Incomplete client component in APK: " + component);
 
-            Log.i("UnpackPrep", component + ": Pack was installed manually, or does not exist, unpacking new...");
-            String[] fileList = am.list("components/" + component);
-            for(String s : fileList) {
-                Tools.copyAssetFile(ctx, "components/" + component + "/" + s, rootDir + "/" + component, true);
+        if (versionFile.isFile() && version.equals(Tools.read(versionFile.getPath()))) {
+            boolean complete = true;
+            for (String entry : entries) {
+                if (new File(directory, entry).length() == 0) complete = false;
             }
-        } else {
-            FileInputStream fis = new FileInputStream(versionFile);
-            String release1 = Tools.read(is);
-            String release2 = Tools.read(fis);
-            if (!release1.equals(release2)) {
-                if (versionFile.getParentFile().exists() && versionFile.getParentFile().isDirectory()) {
-                    FileUtils.deleteDirectory(versionFile.getParentFile());
-                }
-                versionFile.getParentFile().mkdir();
-
-                String[] fileList = am.list("components/" + component);
-                for (String fileName : fileList) {
-                    Tools.copyAssetFile(ctx, "components/" + component + "/" + fileName, rootDir + "/" + component, true);
-                }
-            } else {
-                Log.i("UnpackPrep", component + ": Pack is up-to-date with the launcher, continuing...");
-            }
+            if (complete) return;
         }
+
+        if (directory.isDirectory()) FileUtils.deleteDirectory(directory);
+        if (!directory.mkdirs()) throw new IOException("Cannot create " + directory);
+        for (String entry : entries) {
+            if (!entry.equals("version"))
+                Tools.copyAssetFile(ctx, assetDir + "/" + entry, directory.getPath(), true);
+        }
+        // A failed or interrupted install must retry even if the package version is unchanged.
+        Tools.write(versionFile.getPath(), version);
     }
 }

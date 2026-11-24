@@ -10,6 +10,7 @@ import android.widget.*;
 import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import net.kdt.pojavlaunch.*;
+import net.kdt.pojavlaunch.tasks.AsyncAssetManager;
 import net.kdt.pojavlaunch.multirt.MultiRTUtils;
 import java.io.*;
 import java.lang.ref.WeakReference;
@@ -145,11 +146,6 @@ public final class SingleplayerActivity extends BaseActivity {
 
     private void startServer(String client) {
         if (operation) return;
-        if (!client.isEmpty()) {
-            try {
-                if (MultiRTUtils.forceReread("Internal") == null) throw new IOException("The existing client runtime is missing. Configure it in launcher settings first.");
-            } catch (Exception e) { error(e); return; }
-        }
         pendingClient = client;
         if (ready) { if (!client.isEmpty()) launchClient(); return; }
         if (busy) { status.setText("The client will open when the server is ready."); return; }
@@ -160,9 +156,21 @@ public final class SingleplayerActivity extends BaseActivity {
     }
 
     private void launchClient() {
+        try {
+            if (!AsyncAssetManager.clientReady(this)) {
+                setTextIfChanged(detail, "Preparing client files…");
+                return; // The next server status update resumes this Play request.
+            }
+        } catch (IOException e) {
+            pendingClient = "";
+            error(e);
+            return;
+        }
         String client = pendingClient; pendingClient = "";
-        try { startActivity(LocalClient.intent(this, client.equals("sd") ? JavaGUILauncherActivity.class : MainActivity.class)); }
-        catch (Exception e) { error(e); }
+        try {
+            MultiRTUtils.requireClientRuntime();
+            startActivity(LocalClient.intent(this, client.equals("sd") ? JavaGUILauncherActivity.class : MainActivity.class));
+        } catch (Exception e) { error(e); }
     }
     @Override protected void onResume() { super.onResume(); resumed = true; if (supported) handler.post(refresh); }
     @Override protected void onPause() { resumed = false; handler.removeCallbacks(refresh); super.onPause(); }

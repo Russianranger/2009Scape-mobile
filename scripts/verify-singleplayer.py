@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify distributable server contents and separation from the unmodified client."""
+"""Verify the distributable server and the assets needed for first client launch."""
 import hashlib
 import io
 import json
@@ -7,7 +7,48 @@ from pathlib import Path
 import sys
 import zipfile
 
+from client_runtime import ASSET_PATH, SHA256 as CLIENT_JRE_SHA256
+
+source_assets = Path(__file__).resolve().parents[1] / 'app_pojavlauncher/src/main/assets'
+
+
+def verify_client_assets(apk):
+    # These are consumed before a fresh installation can launch a client.
+    shipped = [
+        'rt4.jar',
+        'config.json',
+        'components/caciocavallo/version',
+        'components/caciocavallo/ResConfHack.jar',
+        'components/caciocavallo/cacio-androidnw-1.10-SNAPSHOT.jar',
+        'components/caciocavallo/cacio-shared-1.10-SNAPSHOT.jar',
+        'components/caciocavallo17/version',
+        'components/caciocavallo17/cacio-shared-1.18-SNAPSHOT.jar',
+        'components/caciocavallo17/cacio-tta-1.18-SNAPSHOT.jar',
+        'components/lwjgl3/lwjgl-glfw-classes.jar',
+        'components/security/version',
+        'components/security/java_sandbox.policy',
+        'components/security/log4j-rce-patch-1.12.xml',
+        'components/security/log4j-rce-patch-1.7.xml',
+        'components/security/pro-grade.jar',
+    ]
+    for path in shipped:
+        content = apk.read('assets/' + path)
+        assert content and content == (source_assets / path).read_bytes(), path
+
+    for name, expected in CLIENT_JRE_SHA256.items():
+        assert hashlib.sha256(apk.read(ASSET_PATH + name)).hexdigest() == expected, name
+    assert 'lib/arm64-v8a/libawt_xawt.so' in apk.namelist()
+
+    defaults = json.loads(apk.read('assets/config.json'))
+    assert isinstance(defaults, dict), 'Client configuration must be a JSON object'
+    jar = apk.read('assets/components/lwjgl3/lwjgl-glfw-classes.jar')
+    marker = apk.read('assets/components/lwjgl3/version')
+    expected_marker = hashlib.sha256(jar).hexdigest().encode('ascii')
+    assert marker == expected_marker, 'LWJGL component version does not match its JAR'
+
+
 with zipfile.ZipFile(sys.argv[1]) as apk:
+    verify_client_assets(apk)
     manifest = json.loads(apk.read('assets/singleplayer/manifest.json'))
     for name, digest in manifest['archives'].items():
         assert hashlib.sha256(apk.read('assets/singleplayer/' + name)).hexdigest() == digest, name
@@ -21,6 +62,4 @@ with zipfile.ZipFile(sys.argv[1]) as apk:
         assert any(name.startswith('legal/') for name in runtime.namelist())
         for name in runtime.namelist():
             assert not runtime.read(name).startswith(b'\x7fELF'), name
-    source = Path(__file__).resolve().parents[1] / 'app_pojavlauncher/src/main/assets/rt4.jar'
-    assert apk.read('assets/rt4.jar') == source.read_bytes(), 'Client binary changed'
-print('Single-player APK assets, ARM64 libraries, checksums, notices and original client verified')
+print('Single-player APK client startup assets, ARM64 libraries, server archives and notices verified')

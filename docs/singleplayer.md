@@ -5,7 +5,7 @@ Branch: `codex/integrated-singleplayer`. The Android client JAR and controller c
 ## On the device
 
 The integrated server requires Android 13+ ARM64 (including AYN Thor). It runs without root,
-Termux, proot or a desktop GUI. The existing client runtime must already be configured, as in 3.2.
+Termux, proot or a desktop GUI. Preview 3 reuses a compatible Java 8 client runtime or installs one from the APK on first use.
 
 1. Open **Single-player server** from the launcher.
 2. Choose **Play HD locally** or **Play SD locally**. The app installs the bundled server,
@@ -20,7 +20,7 @@ Termux, proot or a desktop GUI. The existing client runtime must already be conf
    economy and cache. **Restore world backup** accepts these version-matched backups and
    retains the previous world in a dated directory. Export backups before uninstalling.
 
-This preview starts a new world. It does not import an existing Termux directory automatically.
+Fresh installs start a new world. Installing over an earlier preview keeps the world already on the device.
 The server continues while the client is closed or the server screen is in the background.
 Android force-stop, process killing and power loss can still interrupt saving. The native runner
 signals the child JVM if its supervisor dies, and a world lock prevents concurrent writers.

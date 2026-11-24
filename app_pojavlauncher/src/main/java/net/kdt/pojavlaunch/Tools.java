@@ -156,7 +156,7 @@ public final class Tools {
 
     public static void launchGLJRE(final Activity activity) throws Throwable {
 
-        Runtime runtime = MultiRTUtils.forceReread("Internal");
+        Runtime runtime = MultiRTUtils.requireClientRuntime();
         File gamedir = new File(Tools.DIR_DATA);
 
         ExtraCore.setValue(ExtraConstants.OPEN_GL_VERSION, "2");

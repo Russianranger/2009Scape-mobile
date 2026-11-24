@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--version-code", required=True, type=int)
     parser.add_argument("--previous-apk", type=Path)
+    parser.add_argument("--expected-cert-sha256", help="SHA-256 signing certificate digest of the installed release")
     args = parser.parse_args()
 
     badging = output(str(args.build_tools / "aapt"), "dump", "badging", str(args.apk))
@@ -40,6 +41,8 @@ def main():
 
     apksigner = str(args.build_tools / "apksigner")
     digest = certificate(apksigner, args.apk)
+    if args.expected_cert_sha256 and digest.lower() != args.expected_cert_sha256.lower():
+        raise RuntimeError(f"Unexpected APK signing certificate: {digest}")
     if args.previous_apk and certificate(apksigner, args.previous_apk) != digest:
         raise RuntimeError("Signing certificate differs from the previous release")
 
