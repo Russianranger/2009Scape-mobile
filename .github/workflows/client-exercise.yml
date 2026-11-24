@@ -4,57 +4,16 @@ on:
     branches: ['ci/odin-client-android15']
 permissions:
   contents: read
+  actions: read
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 18
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            /.github/client-exercise/
-          sparse-checkout-cone-mode: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Read candidate commit
-        id: source
-        run: echo "ref=$(cat .github/client-exercise/source-sha)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          path: candidate
-          ref: ${{ steps.source.outputs.ref }}
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Build candidate
-        working-directory: candidate
-        run: |
-          sed -i '/^    repositories {$/a\        maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }' settings.gradle
-          ./gradlew :app_pojavlauncher:assembleDebug --no-daemon || ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
-          cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk ../client.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tested-candidate-apk
-          path: client.apk
-          retention-days: 3
-
   client:
-    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 24
     strategy:
       fail-fast: false
       matrix:
-        mode: [hd, sd]
-        source: [candidate]
-        include:
-          - mode: hd
-            source: arm64
-          - mode: hd
-            source: vbo-off
+        mode: [hd]
+        source: [force-bind]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,8 +24,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Wait for candidate build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 65); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/45463048131/artifacts" --jq '.artifacts[].name' | grep -Fx tested-candidate-apk && break
+            sleep 8
+          done
       - uses: actions/download-artifact@v4
         with:
+          run-id: 45463048131
+          github-token: ${{ github.token }}
           name: tested-candidate-apk
       - name: Start Android API 35 emulator
         run: |

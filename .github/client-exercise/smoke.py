@@ -72,8 +72,9 @@ with ExitStack() as resources:
         raise RuntimeError('No complete Java 8 and local world found')
     for filename in ('config.json', 'singleplayer-client.json'):
         adb('shell', f"run-as {pkg} sh -c 'cat > {filename}'", input=json.dumps(cfg).encode())
-    if sys.argv[2:] == ['vbo-off']:
-        adb('shell', f'echo LIBGL_USEVBO=0 > /sdcard/Android/data/{pkg}/files/custom_env.txt')
+    option = {'vbo-off': 'LIBGL_USEVBO=0', 'force-bind': 'LIBGL_BUFFER_FORCE_BIND=1'}.get(sys.argv[2] if len(sys.argv)>2 else '')
+    if option:
+        adb('shell', f'echo {option} > /sdcard/Android/data/{pkg}/files/custom_env.txt')
         adb('shell', f'cat /sdcard/Android/data/{pkg}/files/custom_env.txt')
     proc = subprocess.Popen(['sudo','tcpdump','-ni','lo','-l','tcp port 43595'], stdout=resources.enter_context((out/'connections.txt').open('w')), stderr=subprocess.DEVNULL)
     resources.callback(subprocess.run, ['sudo', 'kill', '-TERM', str(proc.pid)], check=False)
@@ -95,6 +96,7 @@ with ExitStack() as resources:
                 seen_login = True
                 break
     cache_files('end')
+    save('hotspot.txt','shell', f'for f in /data/user/0/{pkg}/files/client-diagnostics/*hotspot* /data/user/0/{pkg}/hs_err_pid*.log; do test -s "$f" && cat "$f"; done',limit=1800000)
     save('activities.txt','shell','dumpsys','activity','activities',limit=180000)
     save('exit-info.txt','shell','dumpsys','activity','exit-info',pkg,limit=120000)
     save('client.txt','shell',f'cat /data/media/0/Android/data/{pkg}/files/latestlog.txt || cat /sdcard/Android/data/{pkg}/files/latestlog.txt',limit=600000)
