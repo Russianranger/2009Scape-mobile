@@ -1,0 +1,46 @@
+{
+  "runtime.tar.xz": {
+    "url": "https://github.com/Russianranger/wurm-android/releases/download/runtime-17.0.20-android-1/android-jre17.0.20-arm64.tar.xz",
+    "sha256": "36b82145bfc23f597ef5d996b73e458a5b0faf84ecdcb054079dff4a96b78a5b"
+  },
+  "server.zip": {
+    "url": "https://gitlab.com/2009scape/singleplayer/windows/-/archive/f00fcb7e8f8916ed016cc8eb7a9f0bb19f490b60/windows-f00fcb7e8f8916ed016cc8eb7a9f0bb19f490b60.zip",
+    "sha256": "3151b00cdfc33eb5394c6ccdd98436144fbcefb57b3775f6b2c01f3b7fd21e1a"
+  },
+  "sqlite.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1.jar",
+    "sha256": "f55e405ed96d5ffe629e05b7b51b059e1c7d64527c0cc90a972fbac06730ccc1"
+  },
+  "sqlite-android.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/xerial/sqlite-jdbc/3.53.2.1/sqlite-jdbc-3.53.2.1-natives-android.jar",
+    "sha256": "011d4edb8d06012ced78d6aa675ffc85bf339d3cd640845684b80873ec5a6e97"
+  },
+  "asm.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.7.1/asm-9.7.1.jar",
+    "sha256": "8cadd43ac5eb6d09de05faecca38b917a040bb9139c7edeb4cc81c740b713281"
+  },
+  "nashorn.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/openjdk/nashorn/nashorn-core/15.4/nashorn-core-15.4.jar",
+    "sha256": "6f816e84dfd63a81d4eaa7829c08337bbaff3ec683ff3bf6bbd90d017a00dc6f"
+  },
+  "nashorn-asm.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/ow2/asm/asm/7.3.1/asm-7.3.1.jar",
+    "sha256": "2f67e11ceec819ebd88ddee5300aba699b1cbab2e20c22e97cf027d3be93959b"
+  },
+  "nashorn-asm-commons.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-commons/7.3.1/asm-commons-7.3.1.jar",
+    "sha256": "87cd8bb3c6bf6bcbb33fca48060c5065f66ebf6a3d7de9bf18bff51bcf156ebc"
+  },
+  "nashorn-asm-tree.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-tree/7.3.1/asm-tree-7.3.1.jar",
+    "sha256": "f91a4a8aa868c5c4665bb4fd134019a91f9f8b9216527fba295e3c8b5422b78b"
+  },
+  "nashorn-asm-util.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-util/7.3.1/asm-util-7.3.1.jar",
+    "sha256": "182128592742ed4883ac82bf205f137b6bfbe1234c68e6feb13759e75a85b729"
+  },
+  "nashorn-asm-analysis.jar": {
+    "url": "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-analysis/7.3.1/asm-analysis-7.3.1.jar",
+    "sha256": "46b8a8efd4b94facb5ab4b35afe30ee0546ae7a43d2c64e6def56c2f168fefa5"
+  }
+}

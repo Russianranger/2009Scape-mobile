@@ -156,7 +156,7 @@ public final class Tools {
 
     public static void launchGLJRE(final Activity activity) throws Throwable {
 
-        Runtime runtime = MultiRTUtils.forceReread("Internal");
+        Runtime runtime = MultiRTUtils.requireClientRuntime();
         File gamedir = new File(Tools.DIR_DATA);
 
         ExtraCore.setValue(ExtraConstants.OPEN_GL_VERSION, "2");
@@ -166,7 +166,7 @@ public final class Tools {
 
         getCacioJavaArgs(javaArgList, runtime.javaVersion == 8);
 
-        javaArgList.add("-DconfigFile="+Tools.DIR_DATA + "/config.json");
+        javaArgList.add("-DconfigFile=" + net.kdt.pojavlaunch.server.LocalClient.configPath(activity));
         javaArgList.add("-DpluginDir="+ Tools.DIR_DATA + "/plugins/");
         javaArgList.add("-DclientHomeOverride="+gamedir);
         javaArgList.add("-DglfwWidth="+CallbackBridge.windowWidth);

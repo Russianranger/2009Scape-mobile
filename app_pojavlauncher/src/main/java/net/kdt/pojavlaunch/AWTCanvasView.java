@@ -2,21 +2,18 @@ package net.kdt.pojavlaunch;
 
 import android.content.*;
 import android.graphics.*;
-import android.text.*;
 import android.util.*;
 import android.view.*;
 
-import java.util.*;
 
 import net.kdt.pojavlaunch.Tools;
 import net.kdt.pojavlaunch.utils.*;
 
-public class AWTCanvasView extends TextureView implements TextureView.SurfaceTextureListener, Runnable {
+public class AWTCanvasView extends TextureView implements TextureView.SurfaceTextureListener {
     public static final int AWT_CANVAS_WIDTH = 765;
     public static final int AWT_CANVAS_HEIGHT = 503;
     private static final double NANOS = 1000000000.0;
-    private boolean mIsDestroyed = false;
-    private final LinkedList<Long> mTimes = new LinkedList<Long>(){{add(System.nanoTime());}};
+    private volatile int surfaceGeneration;
 
     public AWTCanvasView(Context ctx) {
         this(ctx, null);
@@ -31,13 +28,14 @@ public class AWTCanvasView extends TextureView implements TextureView.SurfaceTex
     @Override
     public void onSurfaceTextureAvailable(SurfaceTexture texture, int w, int h) {
         getSurfaceTexture().setDefaultBufferSize(AWT_CANVAS_WIDTH, AWT_CANVAS_HEIGHT);
-        mIsDestroyed = false;
-        new Thread(this, "AndroidAWTRenderer").start();
+        int generation = ++surfaceGeneration;
+        Surface surface = new Surface(texture);
+        new Thread(() -> render(surface, generation), "AndroidAWTRenderer").start();
     }
 
     @Override
     public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
-        mIsDestroyed = true;
+        surfaceGeneration++;
         return true;
     }
 
@@ -51,58 +49,38 @@ public class AWTCanvasView extends TextureView implements TextureView.SurfaceTex
         getSurfaceTexture().setDefaultBufferSize(AWT_CANVAS_WIDTH, AWT_CANVAS_HEIGHT);
     }
 
-    @Override
-    public void run() {
-        Canvas canvas;
-        Surface surface = new Surface(getSurfaceTexture());
-        Bitmap rgbArrayBitmap = Bitmap.createBitmap(AWT_CANVAS_WIDTH, AWT_CANVAS_HEIGHT, Bitmap.Config.ARGB_8888);
-        Paint paint = new Paint();
-        paint.setAntiAlias(false);
-        paint.setDither(false);
-        paint.setFilterBitmap(false);
-        long frameEndNanos;
-        long frameStartNanos;
-        long sleepTime;
-        long sleepMillis;
-        int sleepNanos;
-        int[] rgbArray;
-        // define the frame rate limit
-        final long frameTimeNanos = (long)(NANOS / 60); // Targeting 60 FPS
-        long frameDuration;
-
+    private void render(Surface surface, int generation) {
+        Bitmap bitmap = null;
         try {
-            while (!mIsDestroyed && surface.isValid()) {
-                frameStartNanos = System.nanoTime();
-                canvas = surface.lockCanvas(null);
-                canvas.drawRGB(0, 0, 0);
-                rgbArray = JREUtils.renderAWTScreenFrame();
-                if (rgbArray != null) {
-                    canvas.save();
-                    rgbArrayBitmap.setPixels(rgbArray, 0, AWT_CANVAS_WIDTH, 0, 0, AWT_CANVAS_WIDTH, AWT_CANVAS_HEIGHT);
-                    canvas.drawBitmap(rgbArrayBitmap, 0, 0, paint);
-                    canvas.restore();
+            bitmap = Bitmap.createBitmap(AWT_CANVAS_WIDTH, AWT_CANVAS_HEIGHT, Bitmap.Config.ARGB_8888);
+            int[] pixels = new int[AWT_CANVAS_WIDTH * AWT_CANVAS_HEIGHT];
+            Paint paint = new Paint();
+            paint.setFilterBitmap(false);
+            final long frameTimeNanos = (long)(NANOS / 60);
+            while (surfaceGeneration == generation && surface.isValid()) {
+                long start = System.nanoTime();
+                boolean hasFrame = JREUtils.renderAWTScreenFrame(pixels);
+                if (hasFrame) bitmap.setPixels(pixels, 0, AWT_CANVAS_WIDTH, 0, 0, AWT_CANVAS_WIDTH, AWT_CANVAS_HEIGHT);
+                if (surfaceGeneration != generation) break;
+                Canvas canvas = surface.lockCanvas(null);
+                try {
+                    canvas.drawColor(Color.BLACK);
+                    if (hasFrame) canvas.drawBitmap(bitmap, 0, 0, paint);
+                } finally {
+                    surface.unlockCanvasAndPost(canvas);
                 }
-                surface.unlockCanvasAndPost(canvas);
-
-                // frame rate limiting
-                frameEndNanos = System.nanoTime();
-                frameDuration = frameEndNanos - frameStartNanos;
-                if (frameDuration < frameTimeNanos) {
-                    sleepTime = frameTimeNanos - frameDuration;
-                    sleepMillis = sleepTime / 1000000;
-                    sleepNanos = (int)(sleepTime - sleepMillis * 1000000);
-                    try {
-                        Thread.sleep(sleepMillis, sleepNanos);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
+                long remaining = frameTimeNanos - (System.nanoTime() - start);
+                if (remaining > 0) Thread.sleep(remaining / 1000000, (int)(remaining % 1000000));
             }
-        } catch (Throwable throwable) {
-            Tools.showError(getContext(), throwable);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Throwable e) {
+            if (surfaceGeneration == generation) Tools.showError(getContext(), e);
+        } finally {
+            JREUtils.releaseAWTFrameReader();
+            if (bitmap != null) bitmap.recycle();
+            surface.release();
         }
-        rgbArrayBitmap.recycle();
-        surface.release();
     }
 
     /** Make the view fit the proper aspect ratio of the surface */

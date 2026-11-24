@@ -9,13 +9,17 @@
 #include "utils.h"
 
 typedef int (*Main_Function_t)(int, char**);
-typedef void (*android_update_LD_LIBRARY_PATH_t)(char*);
+typedef void (*android_update_LD_LIBRARY_PATH_t)(const char*);
 
 long shared_awt_surface;
 
 char** convert_to_char_array(JNIEnv *env, jobjectArray jstringArray) {
 	int num_rows = (*env)->GetArrayLength(env, jstringArray);
-	char **cArray = (char **) malloc(num_rows * sizeof(char*));
+	char **cArray = calloc((size_t)num_rows + 1, sizeof(char *)); // argv[argc] must be NULL
+	if (cArray == NULL) {
+		(*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"), "Cannot allocate launcher arguments");
+		return NULL;
+	}
 	jstring row;
 	
 	for (int i = 0; i < num_rows; i++) {
@@ -38,7 +42,7 @@ jobjectArray convert_from_char_array(JNIEnv *env, char **charArray, int num_rows
 	return resultArr;
 }
 
-void free_char_array(JNIEnv *env, jobjectArray jstringArray, const char **charArray) {
+void free_char_array(JNIEnv *env, jobjectArray jstringArray, char **charArray) {
 	int num_rows = (*env)->GetArrayLength(env, jstringArray);
 	jstring row;
 	
@@ -82,26 +86,42 @@ JNIEXPORT jint JNICALL Java_android_os_OpenJDKNativeRegister_nativeRegisterNativ
 	return (jint) result;
 }
 
-JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setLdLibraryPath(JNIEnv *env, jclass clazz, jstring ldLibraryPath) {
-	// jclass exception_cls = (*env)->FindClass(env, "java/lang/UnsatisfiedLinkError");
-	
-	android_update_LD_LIBRARY_PATH_t android_update_LD_LIBRARY_PATH;
-	
-	void *libdl_handle = dlopen("libdl.so", RTLD_LAZY);
-	void *updateLdLibPath = dlsym(libdl_handle, "android_update_LD_LIBRARY_PATH");
-	if (updateLdLibPath == NULL) {
-		updateLdLibPath = dlsym(libdl_handle, "__loader_android_update_LD_LIBRARY_PATH");
-		if (updateLdLibPath == NULL) {
-			char *dl_error_c = dlerror();
-			LOGE("Error getting symbol android_update_LD_LIBRARY_PATH: %s", dl_error_c);
-			// (*env)->ThrowNew(env, exception_cls, dl_error_c);
-		}
-	}
-	
-	android_update_LD_LIBRARY_PATH = (android_update_LD_LIBRARY_PATH_t) updateLdLibPath;
-	const char* ldLibPathUtf = (*env)->GetStringUTFChars(env, ldLibraryPath, 0);
-	android_update_LD_LIBRARY_PATH(ldLibPathUtf);
-	(*env)->ReleaseStringUTFChars(env, ldLibraryPath, ldLibPathUtf);
+JNIEXPORT jboolean JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setLdLibraryPath(JNIEnv *env, jclass clazz, jstring path) {
+    void *libdl = dlopen("libdl.so", RTLD_LAZY);
+    if (!libdl) return JNI_FALSE;
+    android_update_LD_LIBRARY_PATH_t update = dlsym(libdl, "android_update_LD_LIBRARY_PATH");
+    if (!update) update = dlsym(libdl, "__loader_android_update_LD_LIBRARY_PATH");
+    if (!update) {
+        dlclose(libdl);
+        return JNI_FALSE;
+    }
+
+    const char *value = (*env)->GetStringUTFChars(env, path, NULL);
+    if (value) {
+        update(value);
+        (*env)->ReleaseStringUTFChars(env, path, value);
+    }
+    dlclose(libdl);
+    return value ? JNI_TRUE : JNI_FALSE;
+}
+
+/* Retain required runtime libraries in the app's linker namespace for the JVM's lifetime. */
+void *open_runtime_library(JNIEnv *env, jstring path) {
+    const char *name = (*env)->GetStringUTFChars(env, path, NULL);
+    if (!name) return NULL;
+    void *library = dlopen(name, RTLD_GLOBAL | RTLD_NOW);
+    if (!library) {
+        char message[2048];
+        snprintf(message, sizeof(message), "Cannot load client runtime library %s: %s", name, dlerror());
+        LOGE("%s", message);
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/UnsatisfiedLinkError"), message);
+    }
+    (*env)->ReleaseStringUTFChars(env, path, name);
+    return library;
+}
+
+JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_requireRuntimeLibrary(JNIEnv *env, jclass clazz, jstring path) {
+    open_runtime_library(env, path);
 }
 
 JNIEXPORT jboolean JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_dlopen(JNIEnv *env, jclass clazz, jstring name) {
@@ -152,6 +172,7 @@ JNIEXPORT jint JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_executeBinary(JNI
 	
 	int cmd_argv = (*env)->GetArrayLength(env, cmdArgs);
 	char **cmd_args_c = convert_to_char_array(env, cmdArgs);
+	if (!cmd_args_c) return -1;
 	int result = Main_Function(cmd_argv, cmd_args_c);
 	free_char_array(env, cmdArgs, cmd_args_c);
 	return result;

@@ -1,3 +1,6 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 #include <jni.h>
 #include <sys/types.h>
 #include <stdbool.h>
@@ -6,6 +9,7 @@
 #include <stdio.h>
 #include <xhook.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 
@@ -19,19 +23,34 @@ static volatile jmethodID exitTrap_staticMethod;
 static JavaVM *exitTrap_jvm;
 
 static JavaVM *stdiois_jvm;
-static int pfd[2];
-static pthread_t logger;
+static pthread_mutex_t log_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool pipe_installed;
 static jmethodID logger_onEventLogged;
-static volatile jobject logListener = NULL;
+static jobject logListener = NULL;
 static int latestlog_fd = -1;
 
-static bool recordBuffer(char* buf, ssize_t len) {
-    if(strstr(buf, "Session ID is")) return false;
-    if(latestlog_fd != -1) {
-        write(latestlog_fd, buf, len);
-        fdatasync(latestlog_fd);
+static void writeBytes(int fd, const char *text, size_t length) {
+    while (length > 0) {
+        ssize_t count = write(fd, text, length);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        text += count;
+        length -= count;
     }
-    return true;
+}
+
+// The file descriptor and listener may be replaced when an activity is recreated.
+// Use a local reference for the callback and call Java outside the lock.
+static jobject recordBuffer(JNIEnv *env, const char *buf, size_t len, bool newline) {
+    if (strstr(buf, "Session ID is")) return NULL;
+    pthread_mutex_lock(&log_lock);
+    if (latestlog_fd >= 0) {
+        writeBytes(latestlog_fd, buf, len);
+        if (newline) writeBytes(latestlog_fd, "\n", 1);
+    }
+    jobject listener = logListener ? (*env)->NewLocalRef(env, logListener) : NULL;
+    pthread_mutex_unlock(&log_lock);
+    return listener;
 }
 
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, __attribute((unused)) void* reserved) {
@@ -43,65 +62,78 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, __attribute((unused)) void* reserved) {
     return JNI_VERSION_1_4;
 }
 
-static void *logger_thread() {
+static void *logger_thread(void *argument) {
+    int read_fd = (int)(intptr_t)argument;
     JNIEnv *env;
-    jstring writeString;
     (*stdiois_jvm)->AttachCurrentThread(stdiois_jvm, &env, NULL);
-    ssize_t  rsize;
-    char buf[2050];
-    while((rsize = read(pfd[0], buf, sizeof(buf)-1)) > 0) {
-        bool shouldRecordString = recordBuffer(buf, rsize); //record with newline int latestlog
-        if(buf[rsize-1]=='\n') {
-            rsize=rsize-1; //truncate
-        }
-        buf[rsize]=0x00;
-        if(shouldRecordString && logListener != NULL) {
-            writeString = (*env)->NewStringUTF(env, buf); //send to app without newline
-            (*env)->CallVoidMethod(env, logListener, logger_onEventLogged, writeString);
-            (*env)->DeleteLocalRef(env, writeString);
+    jclass string_class = (*env)->FindClass(env, "java/lang/String");
+    jmethodID decode = (*env)->GetMethodID(env, string_class, "<init>", "([BLjava/lang/String;)V");
+    jstring utf8 = (*env)->NewStringUTF(env, "UTF-8");
+    char buf[4096];
+    for (;;) {
+        ssize_t count = read(read_fd, buf, sizeof(buf) - 1);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        buf[count] = 0;
+        jobject listener = recordBuffer(env, buf, count, false);
+        if (listener) {
+            if (buf[count - 1] == '\n') count--;
+            // stdout can contain raw bytes or a UTF-8 character split across two reads.
+            jbyteArray bytes = (*env)->NewByteArray(env, count);
+            if (bytes) {
+                (*env)->SetByteArrayRegion(env, bytes, 0, count, (jbyte *)buf);
+                jstring text = (*env)->NewObject(env, string_class, decode, bytes, utf8);
+                if (text) {
+                    (*env)->CallVoidMethod(env, listener, logger_onEventLogged, text);
+                    (*env)->DeleteLocalRef(env, text);
+                }
+                (*env)->DeleteLocalRef(env, bytes);
+            }
+            if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+            (*env)->DeleteLocalRef(env, listener);
         }
     }
+    close(read_fd);
     (*stdiois_jvm)->DetachCurrentThread(stdiois_jvm);
     return NULL;
 }
+
 JNIEXPORT void JNICALL
-Java_net_kdt_pojavlaunch_Logger_begin(JNIEnv *env, __attribute((unused)) jclass clazz, jstring logPath) {
-    // TODO: implement logToActivity()
-    if(latestlog_fd != -1) {
-        int localfd = latestlog_fd;
-        latestlog_fd = -1;
-        close(localfd);
+Java_net_kdt_pojavlaunch_Logger_begin(JNIEnv *env, __attribute__((unused)) jclass clazz, jstring logPath) {
+    const char *path = (*env)->GetStringUTFChars(env, logPath, NULL);
+    if (path == NULL) return;
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    int error = fd < 0 ? errno : 0;
+    (*env)->ReleaseStringUTFChars(env, logPath, path);
+
+    pthread_mutex_lock(&log_lock);
+    if (!error && !pipe_installed) {
+        int ends[2];
+        if (pipe2(ends, O_CLOEXEC) < 0) {
+            error = errno;
+        } else {
+            pthread_t thread;
+            error = pthread_create(&thread, NULL, logger_thread, (void *)(intptr_t)ends[0]);
+            if (error) {
+                close(ends[0]);
+            } else {
+                pthread_detach(thread);
+                setvbuf(stdout, NULL, _IOLBF, 0);
+                setvbuf(stderr, NULL, _IONBF, 0);
+                if (dup2(ends[1], STDOUT_FILENO) < 0 || dup2(ends[1], STDERR_FILENO) < 0)
+                    error = errno;
+                else pipe_installed = true;
+            }
+            close(ends[1]);
+        }
     }
-    jclass ioeClass = (*env)->FindClass(env, "java/io/IOException");
-
-
-    setvbuf(stdout, 0, _IOLBF, 0); // make stdout line-buffered
-    setvbuf(stderr, 0, _IONBF, 0); // make stderr unbuffered
-
-    /* create the pipe and redirect stdout and stderr */
-    pipe(pfd);
-    dup2(pfd[1], 1);
-    dup2(pfd[1], 2);
-
-    /* open latestlog.txt for writing */
-    const char* logFilePath = (*env)->GetStringUTFChars(env, logPath, NULL);
-    latestlog_fd = open(logFilePath, O_WRONLY | O_TRUNC);
-    if(latestlog_fd == -1) {
-        latestlog_fd = 0;
-        (*env)->ThrowNew(env, ioeClass, strerror(errno));
-        return;
-    }
-    (*env)->ReleaseStringUTFChars(env, logPath, logFilePath);
-
-    /* spawn the logging thread */
-    int result = pthread_create(&logger, 0, logger_thread, 0);
-    if(result != 0) {
-        close(latestlog_fd);
-        (*env)->ThrowNew(env, ioeClass, strerror(result));
-    }
-    pthread_detach(logger);
+    if (!error) {
+        if (latestlog_fd >= 0) close(latestlog_fd);
+        latestlog_fd = fd;
+    } else if (fd >= 0) close(fd);
+    pthread_mutex_unlock(&log_lock);
+    if (error) (*env)->ThrowNew(env, (*env)->FindClass(env, "java/io/IOException"), strerror(error));
 }
-
 
 void (*old_exit)(int code);
 void custom_exit(int code) {
@@ -127,23 +159,22 @@ JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setupExitTrap(JNI
 }
 
 JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_Logger_appendToLog(JNIEnv *env, __attribute((unused)) jclass clazz, jstring text) {
-    jsize appendStringLength = (*env)->GetStringUTFLength(env, text);
-    char newChars[appendStringLength+2];
-    (*env)->GetStringUTFRegion(env, text, 0, appendStringLength, newChars);
-    newChars[appendStringLength] = '\n';
-    newChars[appendStringLength+1] = 0;
-    if(recordBuffer(newChars, appendStringLength+1) && logListener != NULL) {
-        (*env)->CallVoidMethod(env, logListener, logger_onEventLogged, text);
+    const char *bytes = (*env)->GetStringUTFChars(env, text, NULL);
+    if (!bytes) return;
+    jobject listener = recordBuffer(env, bytes, (*env)->GetStringUTFLength(env, text), true);
+    (*env)->ReleaseStringUTFChars(env, text, bytes);
+    if (listener) {
+        (*env)->CallVoidMethod(env, listener, logger_onEventLogged, text);
+        (*env)->DeleteLocalRef(env, listener);
     }
 }
 
 JNIEXPORT void JNICALL
-Java_net_kdt_pojavlaunch_Logger_setLogListener(JNIEnv *env, __attribute((unused)) jclass clazz, jobject log_listener) {
-    jobject logListenerLocal = logListener;
-    if(log_listener == NULL) {
-        logListener = NULL;
-    }else{
-        logListener = (*env)->NewGlobalRef(env, log_listener);
-    }
-    if(logListenerLocal != NULL) (*env)->DeleteGlobalRef(env, logListenerLocal);
+Java_net_kdt_pojavlaunch_Logger_setLogListener(JNIEnv *env, __attribute__((unused)) jclass clazz, jobject log_listener) {
+    jobject next = log_listener ? (*env)->NewGlobalRef(env, log_listener) : NULL;
+    pthread_mutex_lock(&log_lock);
+    jobject previous = logListener;
+    logListener = next;
+    pthread_mutex_unlock(&log_lock);
+    if (previous) (*env)->DeleteGlobalRef(env, previous);
 }

@@ -5,17 +5,21 @@ plugins {
 def pluginSources = file("$rootDir/plugins")
 def generatedPluginAssets = file("$buildDir/generated/plugin-assets")
 def clientJar = file("$projectDir/src/main/assets/rt4.jar")
+def generatedClientRuntime = file("$buildDir/generated/client-runtime-assets")
+def bundleClientRuntime = !project.hasProperty('withoutClientRuntime') &&
+        !file("$projectDir/src/main/assets/components/jre").isDirectory()
+def generatedServer = file("$buildDir/generated/singleplayer")
 
 // Android refuses to install a build numbered lower than the one already on the device.
 // The project this is forked from numbers its releases 9934841 plus the CI run number, so this
 // sits above that range to install over them. Raise both of these for every release.
 // The name must not match a property of the defaultConfig block, or that wins and this is ignored.
 static def getReleaseNumber() {
-    return 9950002
+    return 9950006
 }
 
 def getVersionName = {
-    return "hd-3.2"
+    return "hd-3.3-singleplayer-preview.4"
 }
 
 configurations {
@@ -110,6 +114,7 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
+            keepDebugSymbols += '**/libscape*.so' // Preserve checksum-pinned server runtime binaries.
         }
     }
 
@@ -121,6 +126,9 @@ android {
     sourceSets {
         main {
             assets.srcDirs += generatedPluginAssets
+            if (bundleClientRuntime) assets.srcDirs += generatedClientRuntime
+            assets.srcDirs += new File(generatedServer, 'assets')
+            jniLibs.srcDirs += new File(generatedServer, 'jniLibs')
         }
     }
 }
@@ -167,6 +175,43 @@ task packPlugins {
 // Everything downstream of preBuild then has a path to it, including the lint tasks that read the assets and
 // refuse to run against a folder produced by a task they have no ordering against.
 preBuild.dependsOn packPlugins
+
+if (bundleClientRuntime) {
+    def prepareClientRuntime = tasks.register('prepareClientRuntime', Exec) {
+        workingDir rootDir
+        inputs.file file("$rootDir/scripts/client_runtime.py")
+        outputs.dir generatedClientRuntime
+        commandLine 'python3', 'scripts/client_runtime.py', '--output', generatedClientRuntime,
+                '--cache-dir', new File(gradle.gradleUserHomeDir, 'caches/2009scape-client')
+    }
+    preBuild.dependsOn prepareClientRuntime
+}
+
+// The app may be built with just the checked-in LWJGL jar. Generate the unpacker's
+// version marker here so app-only builds ship it and rebuilt jars get a new version.
+def lwjglAssets = file("src/main/assets/components/lwjgl3")
+def lwjglJar = new File(lwjglAssets, "lwjgl-glfw-classes.jar")
+def lwjglVersion = new File(lwjglAssets, "version")
+def writeLwjglVersion = tasks.register("writeLwjglVersion") {
+    inputs.file lwjglJar
+    outputs.file lwjglVersion
+    mustRunAfter project(':jre_lwjgl3glfw').tasks.withType(Jar)
+    doLast {
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(lwjglJar.bytes)
+        lwjglVersion.setText(digest.encodeHex().toString(), "UTF-8")
+    }
+}
+preBuild.dependsOn writeLwjglVersion
+
+task prepareSingleplayer(type: Exec) {
+    inputs.dir file("$rootDir/server-runtime")
+    inputs.file file("$rootDir/scripts/prepare-singleplayer.py")
+    outputs.dir generatedServer
+    outputs.upToDateWhen { new File(generatedServer, 'jniLibs/arm64-v8a/libscape_server.so').isFile() }
+    doFirst { environment 'ANDROID_NDK_HOME', android.ndkDirectory.absolutePath }
+    commandLine 'python3', "$rootDir/scripts/prepare-singleplayer.py"
+}
+preBuild.dependsOn prepareSingleplayer
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'

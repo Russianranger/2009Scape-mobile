@@ -1,0 +1,103 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#231C09">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:padding="8dp" android:background="@drawable/scape_panel">
+        <Button android:id="@+id/server_back" style="@style/ScapeControl"
+            android:text="@string/singleplayer_back" />
+        <TextView style="@style/ScapeText" android:layout_width="0dp" android:layout_weight="1"
+            android:paddingStart="20dp" android:paddingEnd="12dp"
+            android:fontFamily="serif" android:textStyle="bold" android:textSize="24sp"
+            android:textColor="#E7CA82" android:text="@string/singleplayer_title" />
+    </LinearLayout>
+
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" android:fillViewport="true">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:padding="20dp">
+            <TextView android:id="@+id/server_intro" style="@style/ScapeText"
+                android:text="@string/singleplayer_intro" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:layout_marginTop="12dp"
+                android:padding="14dp" android:background="@drawable/scape_panel">
+                <TextView android:id="@+id/server_state" style="@style/ScapeText"
+                    android:text="@string/singleplayer_connecting" android:textColor="#E7CA82"
+                    android:textStyle="bold" android:textSize="18sp" android:accessibilityLiveRegion="polite" />
+                <TextView android:id="@+id/server_detail" style="@style/ScapeText"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginTop="14dp">
+                <Button android:id="@+id/server_hd" style="@style/ScapePrimary"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    android:text="@string/singleplayer_hd" />
+                <Button android:id="@+id/server_sd" style="@style/ScapePrimary"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="6dp"
+                    android:text="@string/singleplayer_sd" />
+            </LinearLayout>
+            <TextView style="@style/ScapeText" android:layout_marginTop="8dp"
+                android:text="@string/singleplayer_play_hint" android:textSize="12sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginTop="12dp">
+                <Button android:id="@+id/server_start" style="@style/ScapeControl"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    android:text="@string/singleplayer_start" />
+                <Button android:id="@+id/server_stop" style="@style/ScapeControl"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="6dp"
+                    android:text="@string/singleplayer_stop" />
+            </LinearLayout>
+            <Button android:id="@+id/server_force" style="@style/ScapeControl"
+                android:layout_marginTop="8dp" android:visibility="gone"
+                android:text="@string/singleplayer_force" />
+            <TextView style="@style/ScapeText" android:layout_marginTop="12dp"
+                android:text="@string/singleplayer_preservation" android:textSize="12sp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginTop="16dp">
+                <Button android:id="@+id/server_tools_toggle" style="@style/ScapeControl"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_marginEnd="6dp"
+                    android:text="@string/singleplayer_tools_show" />
+                <Button android:id="@+id/server_logs_toggle" style="@style/ScapeControl"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="6dp"
+                    android:text="@string/singleplayer_diagnostics_show" />
+            </LinearLayout>
+            <LinearLayout android:id="@+id/server_tools" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="vertical"
+                android:layout_marginTop="12dp" android:padding="14dp"
+                android:background="@drawable/scape_panel" android:visibility="gone">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView style="@style/ScapeText" android:layout_width="0dp" android:layout_weight="1"
+                        android:labelFor="@id/server_memory" android:text="@string/singleplayer_memory" />
+                    <Spinner android:id="@+id/server_memory" android:layout_width="160dp"
+                        android:layout_height="48dp" android:popupBackground="#302713" />
+                </LinearLayout>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginTop="8dp">
+                    <Button android:id="@+id/server_backup" style="@style/ScapeControl"
+                        android:layout_width="0dp" android:layout_weight="1" android:layout_marginEnd="6dp"
+                        android:text="@string/singleplayer_backup" />
+                    <Button android:id="@+id/server_restore" style="@style/ScapeControl"
+                        android:layout_width="0dp" android:layout_weight="1" android:layout_marginStart="6dp"
+                        android:text="@string/singleplayer_restore" />
+                </LinearLayout>
+            </LinearLayout>
+            <LinearLayout android:id="@+id/server_diagnostics" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:orientation="vertical"
+                android:layout_marginTop="12dp" android:padding="14dp"
+                android:background="@drawable/scape_panel" android:visibility="gone">
+                <TextView style="@style/ScapeText" android:text="@string/singleplayer_diagnostics_hint" />
+                <Button android:id="@+id/server_export" style="@style/ScapeControl"
+                    android:layout_marginTop="8dp" android:text="@string/singleplayer_logs" />
+                <ScrollView android:layout_width="match_parent" android:layout_height="180dp"
+                    android:layout_marginTop="12dp" android:nestedScrollingEnabled="true"
+                    android:background="#1B160A">
+                    <TextView android:id="@+id/server_log" style="@style/ScapeText"
+                        android:padding="8dp" android:fontFamily="monospace" android:textSize="12sp"
+                        android:textIsSelectable="true" android:text="@string/singleplayer_log_empty" />
+                </ScrollView>
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

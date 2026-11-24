@@ -7,6 +7,10 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.IOException;
+import net.kdt.pojavlaunch.tasks.AsyncAssetManager;
+import net.kdt.pojavlaunch.multirt.MultiRTUtils;
+
 import com.kdt.mcgui.ProgressLayout;
 
 import net.kdt.pojavlaunch.progresskeeper.ProgressKeeper;
@@ -34,6 +38,7 @@ public class ScapeLauncher extends BaseActivity {
         ProgressKeeper.addTaskCountListener((mProgressServiceKeeper = new ProgressServiceKeeper(this)));
         ProgressKeeper.addTaskCountListener(mProgressLayout);
 
+        mProgressLayout.observe(ProgressLayout.EXTRACT_COMPONENTS);
         mProgressLayout.observe(ProgressLayout.UNPACK_RUNTIME);
         mProgressLayout.observe(ProgressLayout.INSTALL_MODPACK);
 
@@ -49,15 +54,23 @@ public class ScapeLauncher extends BaseActivity {
             startActivity(intent);
         });
         settings.setOnClickListener(view -> showBottomDialog());
+        findViewById(R.id.singleplayer).setOnClickListener(view ->
+            startActivity(new Intent(this, net.kdt.pojavlaunch.server.SingleplayerActivity.class)));
     }
 
 
     private boolean runtimeReady(){
-        if(mProgressLayout.hasProcesses()){
-            Toast.makeText(this, R.string.tasks_ongoing, Toast.LENGTH_LONG).show();
+        try {
+            if (!AsyncAssetManager.clientReady(this) || mProgressLayout.hasProcesses()) {
+                Toast.makeText(this, R.string.tasks_ongoing, Toast.LENGTH_LONG).show();
+                return false;
+            }
+            MultiRTUtils.requireClientRuntime();
+            return true;
+        } catch (IOException e) {
+            Tools.showError(this, e);
             return false;
         }
-        return true;
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -68,7 +81,9 @@ public class ScapeLauncher extends BaseActivity {
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
         ProgressKeeper.removeTaskCountListener(mProgressServiceKeeper);
+        ProgressKeeper.removeTaskCountListener(mProgressLayout);
+        mProgressLayout.cleanUpObservers();
+        super.onDestroy();
     }
 }

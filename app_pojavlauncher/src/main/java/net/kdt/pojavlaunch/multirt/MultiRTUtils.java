@@ -10,7 +10,8 @@ import com.kdt.mcgui.ProgressLayout;
 
 import net.kdt.pojavlaunch.R;
 import net.kdt.pojavlaunch.Tools;
-import net.kdt.pojavlaunch.utils.JREUtils;
+import net.kdt.pojavlaunch.prefs.LauncherPreferences;
+import net.kdt.pojavlaunch.utils.Architecture;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -25,14 +26,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 
 public class MultiRTUtils {
 
-    private static final HashMap<String,Runtime> sCache = new HashMap<>();
+    private static final ConcurrentHashMap<String, Runtime> sCache = new ConcurrentHashMap<>();
 
     private static final File RUNTIME_FOLDER = new File(Tools.MULTIRT_HOME);
+    private static final String CLIENT_STAGE = ".client-java8.pending";
     private static final String JAVA_VERSION_STR = "JAVA_VERSION=\"";
     private static final String OS_ARCH_STR = "OS_ARCH=\"";
 
@@ -44,7 +46,7 @@ public class MultiRTUtils {
         ArrayList<Runtime> runtimes = new ArrayList<>();
         File[] files = RUNTIME_FOLDER.listFiles();
         if(files != null) for(File f : files) {
-            runtimes.add(read(f.getName()));
+            if (f.isDirectory() && !CLIENT_STAGE.equals(f.getName())) runtimes.add(read(f.getName()));
         }
         else throw new RuntimeException("The runtime directory does not exist");
 
@@ -57,6 +59,25 @@ public class MultiRTUtils {
             if(r.javaVersion == majorVersion)return r.name;
 
         return null;
+    }
+
+    public static Runtime findClientRuntime() {
+        return Runtime.selectClient(getRuntimes(), RUNTIME_FOLDER, Tools.DEVICE_ARCHITECTURE,
+                LauncherPreferences.PREF_DEFAULT_RUNTIME);
+    }
+
+    static boolean isUsableClientRuntime(Runtime runtime) {
+        return runtime.isUsableClient(new File(RUNTIME_FOLDER, runtime.name), Tools.DEVICE_ARCHITECTURE);
+    }
+
+    public static Runtime requireClientRuntime() throws IOException {
+        Runtime runtime = findClientRuntime();
+        if (runtime == null) {
+            throw new IOException("The client needs an Android Java 8 runtime for "
+                    + Architecture.archAsString(Tools.DEVICE_ARCHITECTURE)
+                    + ". Reopen the launcher to retry client setup. If setup still fails, install the single-player APK as an update.");
+        }
+        return runtime;
     }
 
     public static String getNearestJreName(int majorVersion) {
@@ -83,7 +104,7 @@ public class MultiRTUtils {
         runtimeInputStream.close();
         unpack200(nativeLibDir,RUNTIME_FOLDER + "/" + name);
         ProgressLayout.clearProgress(ProgressLayout.UNPACK_RUNTIME);
-        read(name);
+        forceReread(name);
     }
 
     public static void postPrepare(String name) throws IOException {
@@ -102,36 +123,28 @@ public class MultiRTUtils {
         copyDummyNativeLib("libawt_xawt.so", dest, libFolder);
     }
 
-    public static void installRuntimeNamedBinpack(InputStream universalFileInputStream, InputStream platformBinsInputStream, String name, String binpackVersion) throws IOException {
-        File dest = new File(RUNTIME_FOLDER,"/"+name);
-        if(dest.exists()) FileUtils.deleteDirectory(dest);
-        installRuntimeNamedNoRemove(universalFileInputStream,dest);
-        installRuntimeNamedNoRemove(platformBinsInputStream,dest);
-
-        unpack200(NATIVE_LIB_DIR,RUNTIME_FOLDER + "/" + name);
-
-        File binpack_verfile = new File(RUNTIME_FOLDER,"/"+name+"/pojav_version");
-        FileOutputStream fos = new FileOutputStream(binpack_verfile);
-        fos.write(binpackVersion.getBytes());
-        fos.close();
-
-        ProgressLayout.clearProgress(ProgressLayout.UNPACK_RUNTIME);
-
-        forceReread(name);
-    }
-
-
-    public static String __internal__readBinpackVersion(String name) {
-        File binpack_verfile = new File(RUNTIME_FOLDER,"/" + name + "/pojav_version");
+    /** Publish the built-in runtime only after both archives and native libraries are installed. */
+    public static void installBundledJava8(InputStream universal, InputStream nativeBins) throws IOException {
+        File stage = new File(RUNTIME_FOLDER, CLIENT_STAGE);
         try {
-            if (binpack_verfile.exists()) {
-                return Tools.read(binpack_verfile.getAbsolutePath());
-            }else{
-                return null;
-            }
-        }catch (IOException e) {
-            e.printStackTrace();
-            return null;
+            if (stage.exists()) FileUtils.deleteDirectory(stage);
+            uncompressTarXZ(universal, stage);
+            uncompressTarXZ(nativeBins, stage);
+            unpack200(NATIVE_LIB_DIR, stage.getPath());
+            forceReread(CLIENT_STAGE);
+            postPrepare(CLIENT_STAGE);
+            if (!isUsableClientRuntime(forceReread(CLIENT_STAGE)))
+                throw new IOException("The bundled Java 8 runtime is incomplete for this device");
+
+            // Preserve any existing entries, including a user's incompatible or damaged Internal.
+            File destination = new File(RUNTIME_FOLDER, "Internal");
+            for (int i = 1; destination.exists(); i++)
+                destination = new File(RUNTIME_FOLDER, "2009Scape-Java8-" + i);
+            if (!stage.renameTo(destination)) throw new IOException("Cannot install " + destination);
+            forceReread(destination.getName());
+        } finally {
+            sCache.remove(CLIENT_STAGE);
+            if (stage.exists()) FileUtils.deleteDirectory(stage);
         }
     }
 
@@ -167,18 +180,15 @@ public class MultiRTUtils {
             String javaVersion = Tools.extractUntilCharacter(content, JAVA_VERSION_STR, '"');
             String osArch = Tools.extractUntilCharacter(content, OS_ARCH_STR, '"');
             if(javaVersion != null && osArch != null) {
-                String[] javaVersionSplit = javaVersion.split("\\.");
+                String[] javaVersionSplit = javaVersion.split("\\.", -1);
                 int javaVersionInt;
-                if (javaVersionSplit[0].equals("1")) {
-                    javaVersionInt = Integer.parseInt(javaVersionSplit[1]);
-                } else {
-                    javaVersionInt = Integer.parseInt(javaVersionSplit[0]);
-                }
+                javaVersionInt = Integer.parseInt(javaVersionSplit.length > 1 && javaVersionSplit[0].equals("1")
+                        ? javaVersionSplit[1] : javaVersionSplit[0]);
                 returnRuntime = new Runtime(name, javaVersion, osArch, javaVersionInt);
             }else{
                 returnRuntime =  new Runtime(name);
             }
-        }catch(IOException e) {
+        }catch(IOException | NumberFormatException e) {
             returnRuntime =  new Runtime(name);
         }
         sCache.put(name, returnRuntime);
@@ -211,61 +221,61 @@ public class MultiRTUtils {
     @SuppressWarnings("SameParameterValue")
     private static void copyDummyNativeLib(String name, File dest, String libFolder) throws IOException {
         File fileLib = new File(dest, "/"+libFolder + "/" + name);
-        FileInputStream is = new FileInputStream(new File(NATIVE_LIB_DIR, name));
-        FileOutputStream os = new FileOutputStream(fileLib);
-        IOUtils.copy(is, os);
-        is.close();
-        os.close();
-    }
-
-    private static void installRuntimeNamedNoRemove(InputStream runtimeInputStream, File dest) throws IOException {
-        uncompressTarXZ(runtimeInputStream,dest);
-        runtimeInputStream.close();
+        try (InputStream is = new FileInputStream(new File(NATIVE_LIB_DIR, name));
+             FileOutputStream os = new FileOutputStream(fileLib)) {
+            IOUtils.copy(is, os);
+        }
     }
 
     private static void uncompressTarXZ(final InputStream tarFileInputStream, final File dest) throws IOException {
         if(dest.isFile()) throw new IOException("Attempting to unpack into a file");
         if(!dest.exists() && !dest.mkdirs()) throw new IOException("Failed to create destination directory");
 
+        String root = dest.getCanonicalPath();
         byte[] buffer = new byte[8192];
-        TarArchiveInputStream tarIn = new TarArchiveInputStream(
+        try (TarArchiveInputStream tarIn = new TarArchiveInputStream(
                 new XZCompressorInputStream(tarFileInputStream)
-        );
-        TarArchiveEntry tarEntry = tarIn.getNextTarEntry();
-        // tarIn is a TarArchiveInputStream
-        while (tarEntry != null) {
+        )) {
+            TarArchiveEntry tarEntry = tarIn.getNextTarEntry();
+            // tarIn is a TarArchiveInputStream
+            while (tarEntry != null) {
 
-            final String tarEntryName = tarEntry.getName();
-            // publishProgress(null, "Unpacking " + tarEntry.getName());
-            ProgressLayout.setProgress(ProgressLayout.UNPACK_RUNTIME, 100, R.string.global_unpacking, tarEntryName);
+                final String tarEntryName = tarEntry.getName();
+                // publishProgress(null, "Unpacking " + tarEntry.getName());
+                ProgressLayout.setProgress(ProgressLayout.UNPACK_RUNTIME, 100, R.string.global_unpacking, tarEntryName);
 
-            File destPath = new File(dest, tarEntry.getName());
-            File destParent = destPath.getParentFile();
-            if (tarEntry.isSymbolicLink()) {
-                if(destParent != null && !destParent.exists() && !destParent.mkdirs())
-                    throw new IOException("Failed to create parent directory for symlink");
-                try {
-                    // android.system.Os
-                    // Libcore one support all Android versions
-                    Os.symlink(tarEntry.getName(), tarEntry.getLinkName());
-                } catch (Throwable e) {
-                    Log.e("MultiRT", e.toString());
+                File destPath = new File(dest, tarEntry.getName());
+                String path = destPath.getCanonicalPath();
+                if (!path.equals(root) && !path.startsWith(root + File.separator))
+                    throw new IOException("Runtime entry outside installation directory: " + tarEntryName);
+                File destParent = destPath.getParentFile();
+                if (tarEntry.isSymbolicLink()) {
+                    if(destParent != null && !destParent.exists() && !destParent.mkdirs())
+                        throw new IOException("Failed to create parent directory for symlink");
+                    try {
+                        String link = tarEntry.getLinkName();
+                        if (new File(link).isAbsolute() ||
+                                !new File(destParent, link).getCanonicalPath().startsWith(root + File.separator))
+                            throw new IOException("Runtime link outside installation directory: " + tarEntryName);
+                        Os.symlink(link, destPath.getPath());
+                    } catch (android.system.ErrnoException e) {
+                        throw new IOException("Cannot install runtime link " + tarEntryName, e);
+                    }
+
+                } else if (tarEntry.isDirectory()) {
+                    if(!destPath.exists() && !destPath.mkdirs())
+                        throw new IOException("Failed to create directory");
+                } else if (!destPath.exists() || destPath.length() != tarEntry.getSize()) {
+                    if(destParent != null && !destParent.exists() && !destParent.mkdirs())
+                        throw new IOException("Failed to create parent directory for file");
+
+                    try (FileOutputStream os = new FileOutputStream(destPath)) {
+                        IOUtils.copyLarge(tarIn, os, buffer);
+                    }
+
                 }
-
-            } else if (tarEntry.isDirectory()) {
-                if(!destPath.exists() && !destPath.mkdirs())
-                    throw new IOException("Failed to create directory");
-            } else if (!destPath.exists() || destPath.length() != tarEntry.getSize()) {
-                if(destParent != null && !destParent.exists() && !destParent.mkdirs())
-                    throw new IOException("Failed to create parent directory for file");
-
-                FileOutputStream os = new FileOutputStream(destPath);
-                IOUtils.copyLarge(tarIn, os, buffer);
-                os.close();
-
+                tarEntry = tarIn.getNextTarEntry();
             }
-            tarEntry = tarIn.getNextTarEntry();
         }
-        tarIn.close();
     }
 }

@@ -18,7 +18,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import net.kdt.pojavlaunch.tasks.AsyncAssetManager;
 import net.kdt.pojavlaunch.utils.*;
 
 public class PojavApplication extends Application {
@@ -37,6 +36,7 @@ public class PojavApplication extends Application {
 				if(crashHome != null && !crashHome.exists() && !crashHome.mkdirs()) {
 					throw new IOException("Failed to create crash log home");
 				}
+				ClientDiagnostics.rotate(crashFile);
 				PrintStream crashStream = new PrintStream(crashFile);
 				crashStream.append("PojavLauncher crash report\n");
 				crashStream.append(" - Time: ").append(DateFormat.getDateTimeInstance().format(new Date())).append("\n");
@@ -70,7 +70,6 @@ public class PojavApplication extends Application {
 												originalJNIDirectory.lastIndexOf("/"))
 												.concat("/x86");
 			}
-			AsyncAssetManager.unpackRuntime(getAssets());
 		} catch (Throwable throwable) {
 			Intent ferrorIntent = new Intent(this, FatalErrorActivity.class);
 			ferrorIntent.putExtra("throwable", throwable);

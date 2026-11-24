@@ -1,6 +1,5 @@
 package net.kdt.pojavlaunch;
 
-import static net.kdt.pojavlaunch.MainActivity.fullyExit;
 import static net.kdt.pojavlaunch.Tools.currentDisplayMetrics;
 
 import static java.security.AccessController.getContext;
@@ -57,21 +56,19 @@ public class JavaGUILauncherActivity extends BaseActivity implements View.OnTouc
     private long lastPress = 0;
     private ScaleGestureDetector scaleGestureDetector;
     private boolean rcState = false;
-    private boolean mSkipDetectMod;
     private static boolean mIsVirtualMouseEnabled;
 
     @SuppressLint("ClickableViewAccessibility")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ClientDiagnostics.phase(this, "activity created");
         setContentView(R.layout.activity_java_gui_launcher);
 
         try {
-            File latestLogFile = new File(Tools.DIR_GAME_HOME, "latestlog.txt");
-            if (!latestLogFile.exists() && !latestLogFile.createNewFile())
-                throw new IOException("Failed to create a new log file");
-            Logger.begin(latestLogFile.getAbsolutePath());
+            ClientDiagnostics.beginLog();
         }catch (IOException e) {
+            ClientDiagnostics.failure(this, e);
             Tools.showError(this, e, true);
         }
         MainActivity.GLOBAL_CLIPBOARD = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -197,39 +194,16 @@ public class JavaGUILauncherActivity extends BaseActivity implements View.OnTouc
             }
         });
 
-        try {
-
-            placeMouseAt(CallbackBridge.physicalWidth / 2f, CallbackBridge.physicalHeight / 2f);
-
-            String jreName = LauncherPreferences.PREF_DEFAULT_RUNTIME;
-            final Runtime runtime = MultiRTUtils.forceReread(jreName);
-
-            mSkipDetectMod = false;
-            if (mSkipDetectMod) {
-                new Thread(() -> launchJavaRuntime(runtime, ""), "JREMainThread").start();
-                return;
+        placeMouseAt(CallbackBridge.physicalWidth / 2f, CallbackBridge.physicalHeight / 2f);
+        new Thread(() -> {
+            try {
+                Runtime runtime = MultiRTUtils.requireClientRuntime();
+                if (launchJavaRuntime(runtime) == 0) runOnUiThread(MainActivity::fullyExit);
+            } catch (Throwable e) {
+                ClientDiagnostics.failure(this, e);
+                Tools.showError(this, e, true);
             }
-
-            // No skip detection
-            new Thread(() -> {
-                try {
-                    final int exit = launchJavaRuntime(runtime, "");
-                    Logger.appendToLog(getString(R.string.toast_optifine_success));
-                    if (exit != 0) return;
-                    runOnUiThread(() -> {
-                        Toast.makeText(JavaGUILauncherActivity.this, R.string.toast_optifine_success, Toast.LENGTH_SHORT).show();
-                        fullyExit();
-                    });
-
-                } catch (Throwable e) {
-                    Logger.appendToLog("Install failed:");
-                    Logger.appendToLog(Log.getStackTraceString(e));
-                    Tools.showError(JavaGUILauncherActivity.this, e);
-                }
-            }, "Installer").start();
-        } catch (Throwable th) {
-            Tools.showError(this, th, true);
-        }
+        }, "SD client JVM").start();
     }
 
     private void panCamera(float dx, float dy) throws InterruptedException {
@@ -386,28 +360,23 @@ public class JavaGUILauncherActivity extends BaseActivity implements View.OnTouc
                 Toast.LENGTH_SHORT).show();
     }
 
-    public int launchJavaRuntime(Runtime runtime, String javaArgs) {
-        runtime = MultiRTUtils.forceReread("Internal");
-        JREUtils.redirectAndPrintJRELog();
-        try {
-            List<String> javaArgList = new ArrayList<>();
-            File gamedir = new File(Tools.DIR_DATA);
+    private int launchJavaRuntime(Runtime runtime) throws Throwable {
+        List<String> javaArgList = new ArrayList<>();
+        File gamedir = new File(Tools.DIR_DATA);
 
-            // Enable Caciocavallo
-            Tools.getCacioJavaArgs(javaArgList,runtime.javaVersion == 8);
-            javaArgList.add("-DconfigFile="+Tools.DIR_DATA + "/config.json");
-            javaArgList.add("-DpluginDir="+ Tools.DIR_DATA + "/plugins/");
-            javaArgList.add("-DclientHomeOverride="+gamedir);
-            javaArgList.add("-jar");
-            javaArgList.add(Tools.DIR_DATA+"/rt4.jar");
+        // Enable Caciocavallo
+        Tools.getCacioJavaArgs(javaArgList,runtime.javaVersion == 8);
+        // RT4 otherwise attempts to replace the SD canvas with an OpenGL window during login.
+        javaArgList.add("-DlaunchSD=true");
+        javaArgList.add("-DconfigFile=" + net.kdt.pojavlaunch.server.LocalClient.configPath(this));
+        javaArgList.add("-DpluginDir="+ Tools.DIR_DATA + "/plugins/");
+        javaArgList.add("-DclientHomeOverride="+gamedir);
+        javaArgList.add("-jar");
+        javaArgList.add(Tools.DIR_DATA+"/rt4.jar");
 
-            Logger.appendToLog("Info: Java arguments: " + Arrays.toString(javaArgList.toArray(new String[0])));
+        Logger.appendToLog("Info: Java arguments: " + Arrays.toString(javaArgList.toArray(new String[0])));
 
-            return JREUtils.launchJavaVM(this, runtime,gamedir,javaArgList, LauncherPreferences.PREF_CUSTOM_JAVA_ARGS);
-        } catch (Throwable th) {
-            Tools.showError(this, th, true);
-            return -1;
-        }
+        return JREUtils.launchJavaVM(this, runtime,gamedir,javaArgList, LauncherPreferences.PREF_CUSTOM_JAVA_ARGS);
     }
     public void toggleKeyboard(View view) {
         mTouchCharInput.switchKeyboardState();

@@ -1,15 +1,24 @@
 #include <jni.h>
+#include <stdatomic.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
 
 static JavaVM* dalvikJavaVMPtr;
 
-static JavaVM* runtimeJavaVMPtr;
-static JNIEnv* runtimeJNIEnvPtr_GRAPHICS;
+static _Atomic(JavaVM*) runtimeJavaVMPtr;
 static JNIEnv* runtimeJNIEnvPtr_INPUT;
-jclass class_CTCScreen;
-jmethodID method_GetRGB;
+// The Android render thread is replaced when its TextureView surface is recreated.
+static __thread struct {
+    JNIEnv *jre;
+    jboolean attached;
+    jclass screen;
+    jfieldID instance;
+    jmethodID getRGB;
+    jint *pixels;
+    jsize capacity;
+} frameReader;
 
 jclass class_CTCAndroidInput;
 jmethodID method_ReceiveInput;
@@ -77,51 +86,92 @@ JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_AWTInputBridge_nativeSendData(JN
     );
 }
 
-// TODO: check for memory leaks
-// int printed = 0;
-int threadAttached = 0;
-JNIEXPORT jintArray JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_renderAWTScreenFrame(JNIEnv* env, jclass clazz /*, jobject canvas, jint width, jint height */) {
-    if (runtimeJNIEnvPtr_GRAPHICS == NULL) {
-        if (runtimeJavaVMPtr == NULL) {
-            return NULL;
-        } else {
-            (*runtimeJavaVMPtr)->AttachCurrentThread(runtimeJavaVMPtr, &runtimeJNIEnvPtr_GRAPHICS, NULL);
-        }
+static jboolean frameError(JNIEnv *android, const char *message) {
+    JNIEnv *jre = frameReader.jre;
+    if (jre && (*jre)->ExceptionCheck(jre)) {
+        (*jre)->ExceptionDescribe(jre);
+        (*jre)->ExceptionClear(jre);
     }
+    jclass error = (*android)->FindClass(android, "java/lang/IllegalStateException");
+    if (error) (*android)->ThrowNew(android, error, message);
+    return JNI_FALSE;
+}
 
-    int *rgbArray;
-    jintArray jreRgbArray, androidRgbArray;
-  
-    if (method_GetRGB == NULL) {
-        class_CTCScreen = (*runtimeJNIEnvPtr_GRAPHICS)->FindClass(runtimeJNIEnvPtr_GRAPHICS, "net/java/openjdk/cacio/ctc/CTCScreen");
-        if ((*runtimeJNIEnvPtr_GRAPHICS)->ExceptionCheck(runtimeJNIEnvPtr_GRAPHICS) == JNI_TRUE) {
-            (*runtimeJNIEnvPtr_GRAPHICS)->ExceptionClear(runtimeJNIEnvPtr_GRAPHICS);
-            class_CTCScreen = (*runtimeJNIEnvPtr_GRAPHICS)->FindClass(runtimeJNIEnvPtr_GRAPHICS, "com/github/caciocavallosilano/cacio/ctc/CTCScreen");
-        }
-        assert(class_CTCScreen != NULL);
-        method_GetRGB = (*runtimeJNIEnvPtr_GRAPHICS)->GetStaticMethodID(runtimeJNIEnvPtr_GRAPHICS, class_CTCScreen, "getCurrentScreenRGB", "()[I");
-        assert(method_GetRGB != NULL);
+static jboolean openFrameReader(JNIEnv *android) {
+    JavaVM *vm = atomic_load(&runtimeJavaVMPtr);
+    if (!vm) return JNI_FALSE;
+    JNIEnv *jre = NULL;
+    jint result = (*vm)->GetEnv(vm, (void **)&jre, JNI_VERSION_1_6);
+    if (result == JNI_EDETACHED) {
+        result = (*vm)->AttachCurrentThreadAsDaemon(vm, &jre, NULL);
+        frameReader.attached = result == JNI_OK;
     }
-    jreRgbArray = (jintArray) (*runtimeJNIEnvPtr_GRAPHICS)->CallStaticObjectMethod(
-        runtimeJNIEnvPtr_GRAPHICS,
-        class_CTCScreen,
-        method_GetRGB
-    );
-    if (jreRgbArray == NULL) {
-        return NULL;
-    }
-    
-    // Copy JRE RGB array memory to Android.
-    int arrayLength = (*runtimeJNIEnvPtr_GRAPHICS)->GetArrayLength(runtimeJNIEnvPtr_GRAPHICS, jreRgbArray);
-    rgbArray = (*runtimeJNIEnvPtr_GRAPHICS)->GetIntArrayElements(runtimeJNIEnvPtr_GRAPHICS, jreRgbArray, 0);
-    androidRgbArray = (*env)->NewIntArray(env, arrayLength);
-    (*env)->SetIntArrayRegion(env, androidRgbArray, 0, arrayLength, rgbArray);
+    if (result != JNI_OK) return frameError(android, "Could not attach the SD renderer to Java");
+    frameReader.jre = jre;
 
-    (*runtimeJNIEnvPtr_GRAPHICS)->ReleaseIntArrayElements(runtimeJNIEnvPtr_GRAPHICS, jreRgbArray, rgbArray, NULL);
-    // (*env)->DeleteLocalRef(env, androidRgbArray);
-    // free(rgbArray);
-    
-    return androidRgbArray;
+    const char *signature = "Lnet/java/openjdk/cacio/ctc/CTCScreen;";
+    jclass screen = (*jre)->FindClass(jre, "net/java/openjdk/cacio/ctc/CTCScreen");
+    if (!screen) {
+        (*jre)->ExceptionClear(jre);
+        signature = "Lcom/github/caciocavallosilano/cacio/ctc/CTCScreen;";
+        screen = (*jre)->FindClass(jre, "com/github/caciocavallosilano/cacio/ctc/CTCScreen");
+    }
+    if (!screen) return frameError(android, "Could not load the SD screen class");
+    frameReader.screen = (*jre)->NewGlobalRef(jre, screen);
+    (*jre)->DeleteLocalRef(jre, screen);
+    if (!frameReader.screen) return frameError(android, "Could not retain the SD screen class");
+    frameReader.instance = (*jre)->GetStaticFieldID(jre, frameReader.screen, "instance", signature);
+    if (!frameReader.instance) return frameError(android, "Could not find the SD screen instance");
+    frameReader.getRGB = (*jre)->GetStaticMethodID(jre, frameReader.screen, "getCurrentScreenRGB", "()[I");
+    if (!frameReader.getRGB) return frameError(android, "Could not find the SD frame reader");
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_renderAWTScreenFrame(
+        JNIEnv *android, jclass clazz, jintArray target) {
+    if (!frameReader.jre && !openFrameReader(android)) return JNI_FALSE;
+    JNIEnv *jre = frameReader.jre;
+    // Cacio loads its JNI library before its singleton constructor publishes the screen.
+    // getCurrentScreenRGB dereferences that singleton even on the very first poll.
+    jobject instance = (*jre)->GetStaticObjectField(jre, frameReader.screen, frameReader.instance);
+    if ((*jre)->ExceptionCheck(jre)) return frameError(android, "Could not check SD screen readiness");
+    if (!instance) return JNI_FALSE;
+    (*jre)->DeleteLocalRef(jre, instance);
+
+    jintArray frame = (jintArray)(*jre)->CallStaticObjectMethod(jre, frameReader.screen, frameReader.getRGB);
+    if ((*jre)->ExceptionCheck(jre)) return frameError(android, "Could not read the SD frame");
+    if (!frame) return JNI_FALSE;
+    jsize count = (*jre)->GetArrayLength(jre, frame);
+    if (count != (*android)->GetArrayLength(android, target)) {
+        (*jre)->DeleteLocalRef(jre, frame);
+        return frameError(android, "SD frame size differs from the Android canvas");
+    }
+    if (frameReader.capacity != count) {
+        jint *pixels = realloc(frameReader.pixels, (size_t)count * sizeof(jint));
+        if (!pixels) {
+            (*jre)->DeleteLocalRef(jre, frame);
+            return frameError(android, "Could not allocate the SD frame buffer");
+        }
+        frameReader.pixels = pixels;
+        frameReader.capacity = count;
+    }
+    (*jre)->GetIntArrayRegion(jre, frame, 0, count, frameReader.pixels);
+    (*jre)->DeleteLocalRef(jre, frame);
+    if ((*jre)->ExceptionCheck(jre)) return frameError(android, "Could not copy the SD frame");
+    (*android)->SetIntArrayRegion(android, target, 0, count, frameReader.pixels);
+    return JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_releaseAWTFrameReader(
+        JNIEnv *android, jclass clazz) {
+    JNIEnv *jre = frameReader.jre;
+    if (jre && frameReader.screen) (*jre)->DeleteGlobalRef(jre, frameReader.screen);
+    free(frameReader.pixels);
+    if (frameReader.attached) {
+        JavaVM *vm = atomic_load(&runtimeJavaVMPtr);
+        (*vm)->DetachCurrentThread(vm);
+    }
+    memset(&frameReader, 0, sizeof(frameReader));
 }
 
 JNIEXPORT void JNICALL Java_net_java_openjdk_cacio_ctc_CTCClipboard_nQuerySystemClipboard(JNIEnv *env, jclass clazz) {

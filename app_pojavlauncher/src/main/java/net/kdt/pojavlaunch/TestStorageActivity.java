@@ -61,8 +61,7 @@ public class TestStorageActivity extends Activity {
             return;
         }
         //Only run them once we get a definitive green light to use storage
-        AsyncAssetManager.unpackComponents(this);
-        AsyncAssetManager.unpackSingleFiles(this);
+        AsyncAssetManager.prepareClient(this);
 
         Intent intent =  new Intent(this, ScapeLauncher.class);
         startActivity(intent);

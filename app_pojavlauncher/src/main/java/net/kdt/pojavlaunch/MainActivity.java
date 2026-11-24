@@ -89,6 +89,7 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ClientDiagnostics.phase(this, "activity created");
         initLayout(R.layout.activity_basemain);
         CallbackBridge.addGrabListener(touchpad);
         CallbackBridge.addGrabListener(minecraftGLView);
@@ -136,10 +137,7 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED);
 
         try {
-            File latestLogFile = new File(Tools.DIR_GAME_HOME, "latestlog.txt");
-            if(!latestLogFile.exists() && !latestLogFile.createNewFile())
-                throw new IOException("Failed to create a new log file");
-            Logger.begin(latestLogFile.getAbsolutePath());
+            ClientDiagnostics.beginLog();
             // FIXME: is it safe for multi thread?
             GLOBAL_CLIPBOARD = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             touchCharInput.setCharacterSender(new LwjglCharSender());
@@ -167,18 +165,21 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
             drawerLayout.closeDrawers();
             minecraftGLView.setSurfaceReadyListener(() -> {
                 try {
+                    ClientDiagnostics.phase(this, "render surface ready");
                     // Setup virtual mouse right before launching
                     if (PREF_VIRTUAL_MOUSE_START) {
                         touchpad.post(() -> touchpad.switchState());
                     }
                     runCraft();
                 }catch (Throwable e){
-                    Tools.showError(getApplicationContext(), e, true);
+                    ClientDiagnostics.failure(this, e);
+                    Tools.showError(MainActivity.this, e, true);
                 }
             });
 
             minecraftGLView.start();
         } catch (Throwable e) {
+            ClientDiagnostics.failure(this, e);
             Tools.showError(this, e, true);
         }
     }
