@@ -14,6 +14,10 @@ jobs:
       matrix:
         include:
           - mode: hd
+            source: release
+          - mode: sd
+            source: release
+          - mode: hd
             source: upgrade
     steps:
       - uses: actions/checkout@v4
@@ -25,19 +29,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Wait for candidate build
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify the public Preview 4 download
         run: |
-          for attempt in $(seq 1 65); do
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/45465037916/artifacts" --jq '.artifacts[].name' | grep -Fx tested-candidate-apk && break
-            sleep 8
-          done
-      - uses: actions/download-artifact@v4
-        with:
-          run-id: 45465037916
-          github-token: ${{ github.token }}
-          name: tested-candidate-apk
+          curl --fail --location --retry 3 -o client.apk https://github.com/Russianranger/2009Scape-mobile/releases/download/singleplayer-preview-4/2009Scape-singleplayer-preview-4.apk
+          echo '0e0f44335dabaa41eafd21ee42e9b2d61e497190e1a2eb5d82bc0d7dc4b370ae  client.apk' | sha256sum --check
+          mkdir -p validation
+          sha256sum client.apk >validation/apk.sha256
       - name: Fetch published Preview 3 for in-place upgrade
         if: matrix.source == 'upgrade'
         run: |

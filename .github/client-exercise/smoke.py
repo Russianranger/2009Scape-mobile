@@ -123,8 +123,11 @@ with ExitStack() as resources:
                     if coords: break
                 coords.extend([(width//2,int(height*.11)),(width//2,int(height*.25))])
                 for attempt,(x,y) in enumerate(coords):
-                    adb('shell','input','stylus','swipe',str(x),str(y),str(x),str(y),'220')
-                    if attempt == 1:
+                    if mode=='hd':
+                        adb('shell','input','stylus','swipe',str(x),str(y),str(x),str(y),'220')
+                    else:
+                        adb('shell','input','tap',str(x),str(y))
+                    if mode=='hd' and attempt == 1:
                         # The primary mouse button in the stock Pojav layout clicks the last canvas position.
                         adb('shell','input','tap',str(x),str(y))
                         time.sleep(.25)
@@ -159,3 +162,5 @@ with ExitStack() as resources:
     print('Login recognized by OCR:',seen_login,flush=True)
     if not seen_login:
         raise SystemExit('Login not confirmed by OCR. Inspect the screenshots and logs.')
+    if not (out/'login-tapped.png').is_file():
+        raise SystemExit('World screen reached, but post-tap credential fields need visual confirmation.')
