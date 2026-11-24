@@ -4,10 +4,12 @@ on:
   pull_request:
     branches-ignore:
       - 'l10n_v3_openjdk2'
+      - 'codex/integrated-singleplayer' # Built and tested by singleplayer.yml
     types: [ opened, reopened ]
   push:
     branches-ignore:
       - 'l10n_v3_openjdk2'
+      - 'codex/integrated-singleplayer' # Built and tested by singleplayer.yml
   workflow_dispatch:
 
 jobs:

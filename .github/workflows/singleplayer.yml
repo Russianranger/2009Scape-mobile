@@ -2,6 +2,8 @@ name: Single-player preview
 on:
   push:
     branches: [codex/integrated-singleplayer]
+  pull_request:
+    branches: [codex/integrated-singleplayer]
   workflow_dispatch:
 permissions:
   contents: read
@@ -19,7 +21,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager 'platforms;android-33' 'build-tools;33.0.2' 'ndk;25.2.9519653'
+        with:
+          packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
       - uses: gradle/actions/setup-gradle@v4
       - name: Build and test
         run: ./gradlew :app_pojavlauncher:testDebugUnitTest :app_pojavlauncher:assembleDebug --no-daemon
