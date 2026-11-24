@@ -34,7 +34,9 @@ def save(path, *args, limit=None):
 
 
 def installed():
-    return adb('shell', f'run-as {pkg} ls runtimes/Internal/lib', stdout=subprocess.PIPE).stdout.strip() and adb('shell', f'run-as {pkg} find runtimes/Internal/lib -name libjvm.so', stdout=subprocess.PIPE).stdout.strip()
+    process = adb('shell', f'run-as {pkg} find runtimes/Internal/lib -name libjvm.so', stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    return process.returncode == 0 and bool(process.stdout.strip())
+
 
 
 with ZipFile('client.apk') as apk:

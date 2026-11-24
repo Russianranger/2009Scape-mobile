@@ -4,52 +4,14 @@ on:
     branches: ['ci/odin-client-android15']
 permissions:
   contents: read
+  actions: read
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 18
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          sparse-checkout: |
-            /.github/client-exercise/
-          sparse-checkout-cone-mode: false
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - name: Read candidate commit
-        id: source
-        run: echo "ref=$(cat .github/client-exercise/source-sha)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v4
-        with:
-          path: candidate
-          ref: ${{ steps.source.outputs.ref }}
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Build candidate
-        working-directory: candidate
-        run: |
-          sed -i '/^    repositories {$/a\        maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }' settings.gradle
-          ./gradlew :app_pojavlauncher:assembleDebug --no-daemon || ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
-          cp app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk ../client.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tested-candidate-apk
-          path: client.apk
-          retention-days: 3
-
   client:
-    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 24
     strategy:
       fail-fast: false
       matrix:
-        mode: [hd, sd]
-        source: [candidate]
         include:
           - mode: sd
             source: upgrade
@@ -63,8 +25,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Wait for candidate build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 65); do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/45465037916/artifacts" --jq '.artifacts[].name' | grep -Fx tested-candidate-apk && break
+            sleep 8
+          done
       - uses: actions/download-artifact@v4
         with:
+          run-id: 45465037916
+          github-token: ${{ github.token }}
           name: tested-candidate-apk
       - name: Fetch published Preview 3 for in-place upgrade
         if: matrix.source == 'upgrade'
@@ -96,6 +68,7 @@ jobs:
           timeout 300 bash -c 'until adb shell getprop sys.boot_completed | grep -q 1; do sleep 2; done'
           adb root
           adb wait-for-device
+          adb pull /vendor/lib64/libGLESv2_enc.so validation/libGLESv2_enc.so || true
           adb shell input keyevent 82
           adb shell settings put secure immersive_mode_confirmations confirmed
           adb shell wm size 1280x720
