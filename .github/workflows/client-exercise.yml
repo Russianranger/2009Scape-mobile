@@ -12,8 +12,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [hd]
-        source: [force-bind]
+        include:
+          - mode: hd
+            source: draw-probe
+          - mode: sd
+            source: login-tap
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,6 +40,17 @@ jobs:
           run-id: 45463048131
           github-token: ${{ github.token }}
           name: tested-candidate-apk
+      - name: Instrument Java LWJGL draw dispatches for the disposable HD test
+        if: matrix.source == 'draw-probe'
+        run: |
+          unzip -p client.apk assets/components/lwjgl3/lwjgl-glfw-classes.jar > draw-probe.jar
+          mkdir -p probeclasses
+          javac --release 8 -cp draw-probe.jar -d probeclasses .github/client-exercise/DrawProbe.java
+          javac --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED -d probeclasses .github/client-exercise/Patch.java
+          cd probeclasses
+          jar xf ../draw-probe.jar org/lwjgl/opengl/GL11C.class
+          java --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED -cp . Patch org/lwjgl/opengl/GL11C.class
+          jar uf ../draw-probe.jar scapeprobe/DrawProbe.class org/lwjgl/opengl/GL11C.class
       - name: Start Android API 35 emulator
         run: |
           set -euo pipefail

@@ -1,6 +1,8 @@
 from pathlib import Path
 from zipfile import ZipFile
 from contextlib import ExitStack
+import csv
+import io
 import json
 import os
 import re
@@ -72,6 +74,9 @@ with ExitStack() as resources:
         raise RuntimeError('No complete Java 8 and local world found')
     for filename in ('config.json', 'singleplayer-client.json'):
         adb('shell', f"run-as {pkg} sh -c 'cat > {filename}'", input=json.dumps(cfg).encode())
+    if sys.argv[2:] == ['draw-probe']:
+        adb('push','draw-probe.jar','/data/local/tmp/scape-lwjgl.jar')
+        adb('shell',f'cp /data/local/tmp/scape-lwjgl.jar /sdcard/Android/data/{pkg}/files/lwjgl3/lwjgl-glfw-classes.jar')
     option = {'vbo-off': 'LIBGL_USEVBO=0', 'force-bind': 'LIBGL_BUFFER_FORCE_BIND=1'}.get(sys.argv[2] if len(sys.argv)>2 else '')
     if option:
         adb('shell', f'echo {option} > /sdcard/Android/data/{pkg}/files/custom_env.txt')
@@ -92,10 +97,21 @@ with ExitStack() as resources:
                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True).stdout
             print(tick, text, flush=True)
             (out / f'ocr-{tick}.txt').write_text(text)
-            if re.search(r'existing user|new user|create (an? )?account|returning player|existing account|username|password', text, re.I):
+            if re.search(r'existing user|new user|create (an? )?account|returning player|existing account|username|password|log\s*in', text, re.I):
                 seen_login = True
+                rows = subprocess.run(['tesseract', str(out / f'screen-{tick}.png'), 'stdout', '--psm', '11','tsv'],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,text=True).stdout
+                for word in csv.DictReader(io.StringIO(rows), delimiter='\t'):
+                    if word['text'].strip().lower() in ('log', 'login', 'existing') and float(word['conf'])>35:
+                        x = int(word['left']) + int(word['width'])//2
+                        y = int(word['top']) + int(word['height'])//2
+                        adb('shell','input','tap',str(x),str(y))
+                        time.sleep(3)
+                        save('login-tapped.png','exec-out','screencap','-p')
+                        break
                 break
     cache_files('end')
+    save('draw-probe.txt','exec-out','run-as',pkg,'cat','files/draw-probe.log',limit=800000)
     save('hotspot.txt','shell', f'for f in /data/user/0/{pkg}/files/client-diagnostics/*hotspot* /data/user/0/{pkg}/hs_err_pid*.log; do test -s "$f" && cat "$f"; done',limit=1800000)
     save('activities.txt','shell','dumpsys','activity','activities',limit=180000)
     save('exit-info.txt','shell','dumpsys','activity','exit-info',pkg,limit=120000)
