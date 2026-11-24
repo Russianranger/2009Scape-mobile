@@ -12,6 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         mode: [hd, sd]
+        source: [preview3, candidate]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,18 +23,27 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Download released Preview 3
+        if: matrix.source == 'preview3'
+        run: |
+          curl --fail --location --retry 3 -o client.apk "$(cat .github/client-exercise/apk-url)"
+          echo "$(cat .github/client-exercise/apk-sha256)  client.apk" | sha256sum --check
       - name: Read candidate commit
         id: source
         run: echo "ref=$(cat .github/client-exercise/source-sha)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
+        if: matrix.source == 'candidate'
         with:
           path: candidate
           ref: ${{ steps.source.outputs.ref }}
       - uses: android-actions/setup-android@v3
+        if: matrix.source == 'candidate'
         with:
           packages: 'platforms;android-33 build-tools;33.0.2 ndk;25.2.9519653'
       - uses: gradle/actions/setup-gradle@v4
+        if: matrix.source == 'candidate'
       - name: Build candidate
+        if: matrix.source == 'candidate'
         working-directory: candidate
         run: |
           ./gradlew :app_pojavlauncher:assembleDebug --no-daemon
@@ -43,7 +53,14 @@ jobs:
           set -euo pipefail
           sudo chmod a+rw /dev/kvm
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'system-images;android-35;google_apis;x86_64' 'emulator' 'platform-tools'
-          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd --name client --package 'system-images;android-35;google_apis;x86_64' --force
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/avds"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd --path "$ANDROID_AVD_HOME/client.avd" --name client --package 'system-images;android-35;google_apis;x86_64' --force
+          if [ ! -f "$ANDROID_AVD_HOME/client.ini" ]; then
+            printf 'avd.ini.encoding=UTF-8\npath=%s/client.avd\ntarget=android-35\n' "$ANDROID_AVD_HOME" >"$ANDROID_AVD_HOME/client.ini"
+          fi
+          test -f "$ANDROID_AVD_HOME/client.avd/config.ini"
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx client
           export PATH="$ANDROID_HOME/platform-tools:$PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           if ! command -v tesseract >/dev/null; then sudo apt-get -qq install -y tesseract-ocr; fi
@@ -74,6 +91,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: client-${{ matrix.mode }}
+          name: client-${{ matrix.source }}-${{ matrix.mode }}
           path: validation/
           retention-days: 5
